@@ -5,6 +5,7 @@ endif
 ifdef IAR
 CFLAGS += -D__MSP430F2617__=1 -e --vla -Ohz --multiplier=16s --core=430X --double=32
 else
+SMALL=1
 LDFLAGS += -Wl,--defsym -Wl,__P1SEL2=0x0041 -Wl,--defsym -Wl,__P5SEL2=0x0045
 endif
 
@@ -40,9 +41,23 @@ include $(CONTIKI)/cpu/msp430/Makefile.msp430
 
 # Add LDFLAGS after IAR_PATH is set
 ifdef IAR
-LDFLAGSNO += -xm "$(IAR_PATH)/lib/dlib/dl430xsfn.r43" -f "$(IAR_PATH)/config/lnk430f2617.xcl"
-LDFLAGS += $(LDFLAGSNO) -Felf -yn
-endif
+
+ LDFLAGSNO += -xm "$(IAR_PATH)/lib/dlib/dl430xsfn.r43" -f "$(IAR_PATH)/config/lnk430f2617.xcl"
+ LDFLAGS += $(LDFLAGSNO) -Felf -yn
+
+else # IAR
+
+ ifndef MSPGCC_VERSION
+  MSPGCC_VERSION := ${shell $(CC) -dumpversion}
+ endif
+
+ ifneq (,$(findstring 4.7.,$(MSPGCC_VERSION)))
+  # 20 bits flags for compilation (supported from mspgcc 4.7.0)
+  CFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
+  LDFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
+ endif
+
+endif # IAR
 
 contiki-$(TARGET).a: ${addprefix $(OBJECTDIR)/,symbols.o}
 #	$(AR) rcf $@ $^
