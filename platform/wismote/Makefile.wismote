@@ -41,9 +41,23 @@ endif
 include $(CONTIKI)/cpu/msp430/Makefile.msp430
 
 ifdef IAR
-LDFLAGSNO += -xm "$(IAR_PATH)/lib/dlib/dl430xsfn.r43" -f "$(IAR_PATH)/config/lnk430f5437.xcl"
-LDFLAGS += $(LDFLAGSNO) -Felf -yn
-endif
+
+ LDFLAGSNO += -xm "$(IAR_PATH)/lib/dlib/dl430xsfn.r43" -f "$(IAR_PATH)/config/lnk430f5437.xcl"
+ LDFLAGS += $(LDFLAGSNO) -Felf -yn
+
+else # IAR
+
+ ifndef MSPGCC_VERSION
+  MSPGCC_VERSION := ${shell $(CC) -dumpversion}
+ endif
+
+ ifneq (,$(findstring 4.7.,$(MSPGCC_VERSION)))
+  # 20 bits flags for compilation (supported from mspgcc 4.7.0)
+  CFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
+  LDFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
+ endif
+
+endif # IAR
 
 contiki-$(TARGET).a: ${addprefix $(OBJECTDIR)/,symbols.o}
 #	$(AR) rcf $@ $^
