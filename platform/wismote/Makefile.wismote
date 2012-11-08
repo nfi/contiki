@@ -31,6 +31,13 @@ endif
 CONTIKI_TARGET_SOURCEFILES += $(ARCH) $(UIPDRIVERS)
 
 MCU=msp430f5437
+
+ifndef WITH_JTAG
+# Flag set to avoid writing on the bootloader flash space
+LDFLAGS += -Wl,-Ttext=0x8000
+CFLAGS += -Wl,-Ttext=0x8000
+endif
+
 include $(CONTIKI)/cpu/msp430/Makefile.msp430
 
 ifdef IAR
@@ -41,6 +48,12 @@ endif
 contiki-$(TARGET).a: ${addprefix $(OBJECTDIR)/,symbols.o}
 #	$(AR) rcf $@ $^
 
+ifndef UPORT
+UPORT=/dev/ttyUSB0
+endif
+
+ifdef WITH_JTAG
+
 %.hex: %.ihex
 	mv $< $@
 
@@ -49,3 +62,16 @@ contiki-$(TARGET).a: ${addprefix $(OBJECTDIR)/,symbols.o}
 
 %.upload-clean: %.hex
 	msp430flasher -n msp430x5437 -w $< -v -z [VCC]
+
+else # WITH_JTAG
+
+%.titext: %.ihex
+	  python -m msp430.memory.convert -i ihex -f titext $< -o $@
+
+%.upload: %.titext
+	python -m msp430.bsl5.uart -p $(UPORT) --erase=0x8000-0x3FFFF $<
+
+endif # WITH_JTAG
+
+login:
+	$(CONTIKI)/tools/sky/serialdump-linux -b115200 $(UPORT)
