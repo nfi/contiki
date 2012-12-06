@@ -72,10 +72,10 @@ ifdef WITH_JTAG
 	mv $< $@
 
 %.upload: %.hex
-	msp430flasher -n msp430x5437 -e ERASE_MAIN -w $< -v -z [VCC]
+	msp430flasher -n $(MCU) -e ERASE_MAIN -w $< -v -z [VCC]
 
 %.upload-clean: %.hex
-	msp430flasher -n msp430x5437 -w $< -v -z [VCC]
+	msp430flasher -n $(MCU) -w $< -v -z [VCC]
 
 else # WITH_JTAG
 
