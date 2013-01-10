@@ -47,15 +47,17 @@ ifdef IAR
 
 else # IAR
 
- ifndef MSPGCC_VERSION
-  MSPGCC_VERSION := ${shell $(CC) -dumpversion}
- endif
+ ifndef MSPGCC_CUSTOM_MEMORY_MODEL
+  ifndef MSPGCC_VERSION
+   MSPGCC_VERSION := ${shell $(CC) -dumpversion}
+  endif
 
- ifneq (,$(findstring 4.7.,$(MSPGCC_VERSION)))
-  # 20 bits flags for compilation (supported from mspgcc 4.7.0)
-  CFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
-  LDFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
- endif
+  ifneq (,$(findstring 4.7.,$(MSPGCC_VERSION)))
+   # 20 bits flags for compilation (supported from mspgcc 4.7.0)
+   CFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
+   LDFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
+  endif
+ endif # MSPGCC_CUSTOM_MEMORY_MODEL
 
 endif # IAR
 
