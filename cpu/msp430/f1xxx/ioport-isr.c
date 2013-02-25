@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Swedish Institute of Computer Science
+ * Copyright (c) 2013, Swedish Institute of Computer Science
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,66 +27,99 @@
  * SUCH DAMAGE.
  */
 
-#include "contiki.h"
-#include "contiki-net.h"
+/**
+ * \file
+ *         IO Port ISR supporting API
+ * \author
+ *         Niclas Finne <nfi@sics.se>
+ */
 
-#include "dev/spi.h"
-#include "dev/cc2520.h"
-#if CC2520_IOPORT_MULTIPLEXER
 #include "dev/ioport-isr.h"
-#else
 #include "isr_compat.h"
+
+#ifdef IOPORT_ISR_CONF_PORT1
+#define IOPORT_ISR_PORT1 IOPORT_ISR_CONF_PORT1
+#else
+#define IOPORT_ISR_PORT1 1
 #endif
 
-#ifdef CC2520_CONF_SFD_TIMESTAMPS
-#define CONF_SFD_TIMESTAMPS CC2520_CONF_SFD_TIMESTAMPS
-#endif /* CC2520_CONF_SFD_TIMESTAMPS */
-
-#ifndef CONF_SFD_TIMESTAMPS
-#define CONF_SFD_TIMESTAMPS 0
-#endif /* CONF_SFD_TIMESTAMPS */
-
-#ifdef CONF_SFD_TIMESTAMPS
-#include "cc2520-arch-sfd.h"
+#ifdef IOPORT_ISR_CONF_PORT2
+#define IOPORT_ISR_PORT2 IOPORT_ISR_CONF_PORT2
+#else
+#define IOPORT_ISR_PORT2 1
 #endif
 
+#define MAX_PORTS 2
+#define MAX_PINS 8
+struct ioport_isr {
+  ioport_isr_callback_t isr[MAX_PINS];
+};
+static struct ioport_isr ports[MAX_PORTS];
 /*---------------------------------------------------------------------------*/
-#if !CC2520_IOPORT_MULTIPLEXER
-ISR(CC2520_IRQ, cc2520_port1_interrupt)
+#if IOPORT_ISR_PORT1
+ISR(PORT1, irq_port1)
 {
+  unsigned int index;
+  uint8_t pin;
+
   ENERGEST_ON(ENERGEST_TYPE_IRQ);
 
-  if(cc2520_interrupt()) {
-    LPM4_EXIT;
+  for(pin = 1, index = 0; pin && !(pin & P1IFG); pin <<= 1, index++);
+
+  if(pin) {
+    P1IFG &= ~pin;
+    if(ports[0].isr[index] != NULL && ports[0].isr[index]()) {
+      LPM4_EXIT;
+    }
   }
 
   ENERGEST_OFF(ENERGEST_TYPE_IRQ);
 }
-#endif /* !CC2520_IOPORT_MULTIPLEXER */
+#endif /* IOPORT_ISR_PORT1 */
 /*---------------------------------------------------------------------------*/
-void
-cc2520_arch_init(void)
+#if IOPORT_ISR_PORT2
+ISR(PORT2, irq_port2)
 {
-  spi_init();
+  unsigned int index;
+  uint8_t pin;
 
-  /* all input by default, set these as output */
-  CC2520_CSN_PORT(DIR) |= BV(CC2520_CSN_PIN);
-  CC2520_VREG_PORT(DIR) |= BV(CC2520_VREG_PIN);
-  CC2520_RESET_PORT(DIR) |= BV(CC2520_RESET_PIN);
+  ENERGEST_ON(ENERGEST_TYPE_IRQ);
 
-  CC2520_FIFOP_PORT(DIR) &= ~(BV(CC2520_FIFOP_PIN));
-  CC2520_FIFO_PORT(DIR) &= ~(BV(CC2520_FIFO_PIN));
-  CC2520_CCA_PORT(DIR) &= ~(BV(CC2520_CCA_PIN));
-  CC2520_SFD_PORT(DIR) &= ~(BV(CC2520_SFD_PIN));
+  for(pin = 1, index = 0; pin && !(pin & P2IFG); pin <<= 1, index++);
 
-#if CC2520_IOPORT_MULTIPLEXER
-  ioport_isr_set(CC2520_FIFOP_IRQ, CC2520_FIFOP_PIN, cc2520_interrupt);
-#endif
+  if(pin) {
+    P2IFG &= ~pin;
+    if(ports[1].isr[index] != NULL && ports[1].isr[index]()) {
+      LPM4_EXIT;
+    }
+  }
 
-#if CONF_SFD_TIMESTAMPS
-  cc2520_arch_sfd_init();
-#endif
+  ENERGEST_OFF(ENERGEST_TYPE_IRQ);
+}
+#endif /* IOPORT_ISR_PORT2 */
+/*---------------------------------------------------------------------------*/
+ioport_isr_callback_t
+ioport_isr_get(uint8_t port, uint8_t pin)
+{
+  port--;
+  if(pin >= MAX_PINS || port >= MAX_PORTS) {
+    return NULL;
+  }
+  return ports[port].isr[pin];
+}
+/*---------------------------------------------------------------------------*/
+int
+ioport_isr_set(uint8_t port, uint8_t pin, ioport_isr_callback_t callback)
+{
+  int s;
 
-  CC2520_SPI_DISABLE();                /* Unselect radio. */
+  port--;
+  if(pin >= MAX_PINS || port >= MAX_PORTS) {
+    return 0;
+  }
+  s = splhigh();
+  ports[port].isr[pin] = callback;
+  splx(s);
+  return 1;
 }
 /*---------------------------------------------------------------------------*/

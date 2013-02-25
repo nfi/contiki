@@ -31,28 +31,28 @@
 #include "lib/sensors.h"
 #include "dev/hwconf.h"
 #include "dev/button-sensor.h"
-#include "isr_compat.h"
+#include "dev/ioport-isr.h"
 
 const struct sensors_sensor button_sensor;
 
 static struct timer debouncetimer;
 static int status(int type);
 
-HWCONF_PIN(BUTTON, 2, 7);
-HWCONF_IRQ(BUTTON, 2, 7);
+#define BUTTON_IRQ 1
+#define BUTTON_PIN 4
+HWCONF_PIN(BUTTON, 1, 4);
+HWCONF_IRQ(BUTTON, 1, 4);
 
 /*---------------------------------------------------------------------------*/
-ISR(PORT2, irq_p2)
+static int
+button_irq(void)
 {
-  ENERGEST_ON(ENERGEST_TYPE_IRQ);
-
-  if(BUTTON_CHECK_IRQ() && timer_expired(&debouncetimer)) {
+  if(timer_expired(&debouncetimer)) {
     timer_set(&debouncetimer, CLOCK_SECOND / 4);
     sensors_changed(&button_sensor);
-    LPM4_EXIT;
+    return 1;
   }
-  P2IFG = 0x00;
-  ENERGEST_OFF(ENERGEST_TYPE_IRQ);
+  return 0;
 }
 /*---------------------------------------------------------------------------*/
 static int
@@ -72,6 +72,8 @@ configure(int type, int value)
       /* Activate button sensor */
       if(!status(SENSORS_ACTIVE)) {
 	timer_set(&debouncetimer, 0);
+
+        ioport_isr_set(BUTTON_IRQ, BUTTON_PIN, button_irq);
 	BUTTON_IRQ_EDGE_SELECTD();
 
 	BUTTON_SELECT();

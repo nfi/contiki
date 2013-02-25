@@ -137,15 +137,19 @@ typedef unsigned long off_t;
 #define CC2520_CONF_SYMBOL_LOOP_COUNT 2604      /* 326us msp430X @ 16MHz */
 
 /* P1.6 - Input: FIFOP from CC2520 */
+#define CC2520_FIFOP_IRQ           1
 #define CC2520_FIFOP_PORT(type)    P1##type
 #define CC2520_FIFOP_PIN           6
 /* P1.5 - Input: FIFO from CC2520 */
+#define CC2520_FIFO_IRQ            1
 #define CC2520_FIFO_PORT(type)     P1##type
 #define CC2520_FIFO_PIN            5
 /* P1.7 - Input: CCA from CC2520 */
+#define CC2520_CCA_IRQ             1
 #define CC2520_CCA_PORT(type)      P1##type
 #define CC2520_CCA_PIN             7
 /* P2.0 - Input:  SFD from CC2520 */
+#define CC2520_SFD_IRQ             2
 #define CC2520_SFD_PORT(type)      P2##type
 #define CC2520_SFD_PIN             0
 /* P3.0 - Output: SPI Chip Select (CS_N) */
@@ -158,7 +162,7 @@ typedef unsigned long off_t;
 #define CC2520_RESET_PORT(type)    P4##type
 #define CC2520_RESET_PIN           4
 
-#define CC2520_IRQ_VECTOR PORT1_VECTOR
+#define CC2520_IOPORT_MULTIPLEXER  1
 
 /* Pin status.CC2520 */
 #define CC2520_FIFOP_IS_1 (!!(CC2520_FIFOP_PORT(IN) & BV(CC2520_FIFOP_PIN)))
@@ -181,10 +185,9 @@ typedef unsigned long off_t;
   } while(0)
 
 /* FIFOP on external interrupt 0. */
-/* FIFOP on external interrupt 0. */
-#define CC2520_ENABLE_FIFOP_INT()          do { P1IE |= BV(CC2520_FIFOP_PIN); } while (0)
-#define CC2520_DISABLE_FIFOP_INT()         do { P1IE &= ~BV(CC2520_FIFOP_PIN); } while (0)
-#define CC2520_CLEAR_FIFOP_INT()           do { P1IFG &= ~BV(CC2520_FIFOP_PIN); } while (0)
+#define CC2520_ENABLE_FIFOP_INT()  do { CC2520_FIFOP_PORT(IE) |= BV(CC2520_FIFOP_PIN); } while(0)
+#define CC2520_DISABLE_FIFOP_INT() do { CC2520_FIFOP_PORT(IE) &= ~BV(CC2520_FIFOP_PIN); } while(0)
+#define CC2520_CLEAR_FIFOP_INT()   do { CC2520_FIFOP_PORT(IFG) &= ~BV(CC2520_FIFOP_PIN); } while(0)
 
 /*
  * Enables/disables CC2520 access to the SPI bus (not the bus).
