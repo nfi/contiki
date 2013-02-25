@@ -30,7 +30,6 @@
  *
  */
 
-#include <stdio.h>
 #include "sys/mt.h"
 
 #ifdef __IAR_SYSTEMS_ICC__
@@ -75,7 +74,8 @@ mtarch_start(struct mtarch_thread *t,
   --t->sp;
 
   /* Space for registers. */
-  t->sp -= 12 * 2 - 1;
+  t->sp -= 12 * 2;
+  ++t->sp;
 
   /* Store function and argument (used in mtarch_wrapper) */
   t->data = data;
@@ -84,6 +84,9 @@ mtarch_start(struct mtarch_thread *t,
 /*--------------------------------------------------------------------------*/
 
 static void
+#if (__MSPGCC__ > 20120406) && !!(__MSP430X__)
+__attribute__ ( ( __c16__ ) )
+#endif /* CPUX */
 sw(void)
 {
 
