@@ -48,7 +48,7 @@ mtarch_init(void)
 /*--------------------------------------------------------------------------*/
 static void
 #if (__MSPGCC__ > 20120406) && !!(__MSP430X__)
-__attribute__ ( ( __c16__ ) )
+__attribute__ ( ( __c20__ ) )
 #endif /* CPUX */
 mtarch_wrapper(void)
 {
@@ -70,7 +70,9 @@ mtarch_start(struct mtarch_thread *t,
 
   t->sp = &t->stack[MTARCH_STACKSIZE - 1];
 
-  *t->sp = (unsigned short)mtarch_wrapper;
+  *t->sp = ((unsigned short)(((uint20_t)mtarch_wrapper) >> 16)) & 0xf;
+  --t->sp;
+  *t->sp = (unsigned short)((uint20_t)mtarch_wrapper & 0xffff);
   --t->sp;
 
   /* Space for registers. */
@@ -85,11 +87,10 @@ mtarch_start(struct mtarch_thread *t,
 
 static void
 #if (__MSPGCC__ > 20120406) && !!(__MSP430X__)
-__attribute__ ( ( __c16__ ) )
+__attribute__ ( ( __c20__ ) )
 #endif /* CPUX */
 sw(void)
 {
-
   sptmp = running->sp;
 
   __asm__ __volatile__ ("pushm.a #12, r15");
