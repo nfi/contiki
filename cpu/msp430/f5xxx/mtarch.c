@@ -48,10 +48,15 @@ mtarch_init(void)
 }
 /*--------------------------------------------------------------------------*/
 static void
+#if (__MSPGCC__ > 20120406) && !!(__MSP430X__)
+__attribute__ ( ( __c16__ ) )
+#endif /* CPUX */
 mtarch_wrapper(void)
 {
   /* Call thread function with argument */
   ((void (*)(void *))running->function)((void*)running->data);
+
+  mt_exit();
 }
 /*--------------------------------------------------------------------------*/
 void
@@ -64,16 +69,13 @@ mtarch_start(struct mtarch_thread *t,
     t->stack[i] = i;
   }
 
-  t->sp = (uint8_t *)&t->stack[MTARCH_STACKSIZE - 1];
+  t->sp = &t->stack[MTARCH_STACKSIZE - 1];
 
-  *t->sp = (uint8_t *)mt_exit;
-  --t->sp;
-
-  *t->sp = (uint8_t *)mtarch_wrapper;
+  *t->sp = (unsigned short)mtarch_wrapper;
   --t->sp;
 
   /* Space for registers. */
-  t->sp -= 11;
+  t->sp -= 12 * 2 - 1;
 
   /* Store function and argument (used in mtarch_wrapper) */
   t->data = data;
@@ -87,18 +89,7 @@ sw(void)
 
   sptmp = running->sp;
 
-  __asm__("push r4");
-  __asm__("push r5");
-  __asm__("push r6");
-  __asm__("push r7");
-  __asm__("push r8");
-  __asm__("push r9");
-  __asm__("push r10");
-  __asm__("push r11");
-  __asm__("push r12");
-  __asm__("push r13");
-  __asm__("push r14");
-  __asm__("push r15");
+  __asm__ __volatile__ ("pushm.a #12, r15");
 
 #ifdef __IAR_SYSTEMS_ICC__
 /*  use IAR intrinsic functions */
@@ -109,18 +100,7 @@ sw(void)
   __asm__("mov.w %0,r1" : : "m" (sptmp));
 #endif
 
-  __asm__("pop r15");
-  __asm__("pop r14");
-  __asm__("pop r13");
-  __asm__("pop r12");
-  __asm__("pop r11");
-  __asm__("pop r10");
-  __asm__("pop r9");
-  __asm__("pop r8");
-  __asm__("pop r7");
-  __asm__("pop r6");
-  __asm__("pop r5");
-  __asm__("pop r4");
+  __asm__ __volatile__ ("popm.a #12, r15");
 }
 /*--------------------------------------------------------------------------*/
 void
