@@ -70,10 +70,15 @@ mtarch_start(struct mtarch_thread *t,
 
   t->sp = &t->stack[MTARCH_STACKSIZE - 1];
 
+#if (__MSPGCC__ > 20120406) && !!(__MSP430X__)
   *t->sp = ((unsigned short)(((uint20_t)mtarch_wrapper) >> 16)) & 0xf;
   --t->sp;
   *t->sp = (unsigned short)((uint20_t)mtarch_wrapper & 0xffff);
   --t->sp;
+#else
+  *t->sp = (unsigned short)mtarch_wrapper;
+  --t->sp;
+#endif
 
   /* Space for registers. */
   t->sp -= 12 * 2;
