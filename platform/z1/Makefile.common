@@ -54,8 +54,8 @@ else # IAR
 
   ifneq (,$(findstring 4.7.,$(MSPGCC_VERSION)))
    # 20 bits flags for compilation (supported from mspgcc 4.7.0)
-   CFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
-   LDFLAGS += -mmemory-model=large -mcode-region=far -mdata-region=far -msr20 -mc20 -md20
+   CFLAGS += -mmemory-model=large -mcode-region=any -mdata-region=any
+   LDFLAGS += -mmemory-model=large -mcode-region=any -mdata-region=any
   endif
  endif # MSPGCC_CUSTOM_MEMORY_MODEL
 
