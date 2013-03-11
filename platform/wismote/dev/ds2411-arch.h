@@ -50,7 +50,7 @@
 
 #define DS2411_PORT(type) P1##type
 #define DS2411_PIN        1
-#define DS2411_OUI        { 0x00, 0x12, 0x75 }
+#define DS2411_OUI        { 0xc3 }
 
 #define DS2411_INIT() DS2411_SET_INPUT()
 

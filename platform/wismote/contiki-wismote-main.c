@@ -137,7 +137,7 @@ set_rime_addr(void)
 #if UIP_CONF_IPV6
   memcpy(n_addr.u8, ds2411_id, sizeof(n_addr.u8));
 #else
- if(node_id == 0) {
+  if(node_id == 0) {
     for(i = 0; i < sizeof(rimeaddr_t); ++i) {
       n_addr.u8[i] = ds2411_id[7 - i];
     }
@@ -235,8 +235,8 @@ main(int argc, char **argv)
 #ifdef IEEE_802154_MAC_ADDRESS
   {
     uint8_t ieee[] = IEEE_802154_MAC_ADDRESS;
-    //memcpy(ds2411_id, ieee, sizeof(uip_lladdr.addr));
-    //ds2411_id[7] = node_id & 0xff;
+    memcpy(ds2411_id, ieee, sizeof(uip_lladdr.addr));
+    ds2411_id[7] = node_id & 0xff;
   }
 #endif
 
@@ -281,9 +281,9 @@ main(int argc, char **argv)
   }
 
 #if WITH_UIP6
-  /* memcpy(&uip_lladdr.addr, ds2411_id, sizeof(uip_lladdr.addr)); */
-  memcpy(&uip_lladdr.addr, rimeaddr_node_addr.u8,
-         UIP_LLADDR_LEN > RIMEADDR_SIZE ? RIMEADDR_SIZE : UIP_LLADDR_LEN);
+  memcpy(&uip_lladdr.addr, ds2411_id, sizeof(uip_lladdr.addr));
+  /* memcpy(&uip_lladdr.addr, rimeaddr_node_addr.u8, */
+  /*        UIP_LLADDR_LEN > RIMEADDR_SIZE ? RIMEADDR_SIZE : UIP_LLADDR_LEN); */
 
   /* Setup nullmac-like MAC for 802.15.4 */
 /*   sicslowpan_init(sicslowmac_init(&cc2520_driver)); */
