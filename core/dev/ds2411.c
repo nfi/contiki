@@ -51,55 +51,61 @@
 
 #include "contiki.h"
 #include "dev/ds2411.h"
+#include "dev/ds2411-arch.h"
+
+#define DEBUG 0
+#if DEBUG
+#include <stdio.h>
+#define PRINTF(...) printf(__VA_ARGS__)
+#else
+#define PRINTF(...) do {} while (0)
+#endif
 
 unsigned char ds2411_id[8];
 
-#ifdef CONTIKI_TARGET_SKY
-/* 1-wire is at p2.4 */
-#define PIN BV(4)
+#ifndef DS2411_SET_LOW
+#error DS2411_SET_LOW needs to be set!
+#endif
 
-#define PIN_INIT() {\
-  P2DIR &= ~PIN;		/* p2.4 in, resistor pull high */\
-  P2OUT &= ~PIN;		/* p2.4 == 0 but still input */\
-}
+#ifndef DS2411_SET_HIGH
+#error DS2411_SET_HIGH needs to be set!
+#endif
 
-/* Set 1-Wire low or high. */
-#define OUTP_0() (P2DIR |=  PIN) /* output and p2.4 == 0 from above */
-#define OUTP_1() (P2DIR &= ~PIN) /* p2.4 in, external resistor pull high */
+#ifndef DS2411_READ
+#error DS2411_READ needs to be set!
+#endif
 
+/* Set 1-Wire low */
+#define OUTP_0() DS2411_SET_LOW()
+/* Set 1-Wire high */
+#define OUTP_1() DS2411_SET_HIGH()
+
+#ifdef DS2411_SET_INPUT
+#define INP() DS2411_SET_INPUT()
+#else
+#define INP() do {} while(0)
+#endif
 /* Read one bit. */
-#define INP()    (P2IN & PIN)
+#define READP() DS2411_READ()
+
+#ifdef DS2411_UDELAY
+#define udelay(u) DS2411_UDELAY(u)
+#else
+#define udelay(u) clock_delay_usec(u)
+#endif
 
 /*
- * Delay for u microseconds on a MSP430 at 2.4756MHz.
- *
- * The loop in clock_delay consists of one add and one jnz, i.e 3
- * cycles.
- *
- * 3 cycles at 2.4756MHz ==> 1.2us = 6/5us.
- *
- * Call overhead is roughly 7 cycles and the loop 3 cycles, to
- * compensate for call overheads we make 7/3=14/6 fewer laps in the
- * loop.
- *
- * This macro will loose badly if not passed a constant argument, it
- * relies on the compiler doing the arithmetic during compile time!!
- * TODO: Fix above comment to be correct - below code is modified for 4Mhz
+ * Where call overhead dominates, use a macro if supported by the platform!
  */
-#define udelay(u) clock_delay((u*8 - 14)/6)
-
-/*
- * Where call overhead dominates, use a macro!
- * Note: modified for 4 Mhz
- */
-#define udelay_6() { _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); }
-
-#endif /* CONTIKI_TARGET_SKY */
+#ifdef DS2411_UDELAY_6
+#define udelay_tA() DS2411_UDELAY_6()
+#else
+#define udelay_tA() DS2411_UDELAY(6)
+#endif
 
 /*
  * Recommended delay times in us.
  */
-#define udelay_tA() udelay_6()
 /*      tA 6			   max 15 */
 #define tB 64
 #define tC 60			/* max 120 */
@@ -119,7 +125,8 @@ owreset(void)
   udelay(tH);
   OUTP_1();			/* Releases the bus */
   udelay(tI);
-  result = INP();
+  INP();
+  result = READP();
   udelay(tJ);
   return result;
 }
@@ -158,7 +165,8 @@ owreadb(void)
     udelay_tA();
     OUTP_1();			/* Releases the bus */
     udelay(tE);
-    if(INP()) {
+    INP();
+    if(READP()) {
       result |= 0x80;		/* LSbit first */
     }
     udelay(tF);
@@ -187,12 +195,14 @@ crc8_add(unsigned acc, unsigned byte)
 }
 /*---------------------------------------------------------------------------*/
 int
-ds2411_init()
+ds2411_init(void)
 {
   int i;
   unsigned family, crc, acc;
 
-  PIN_INIT();
+#ifdef DS2411_INIT
+  DS2411_INIT();
+#endif
 
   if(owreset() == 0) {	/* Something pulled down 1-wire. */
     /*
@@ -210,24 +220,36 @@ ds2411_init()
 
     /* Verify family and that CRC match. */
     if(family != 0x01) {
-      goto fail;
-    }
-    acc = crc8_add(0x0, family);
-    for(i = 7; i >= 2; i--) {
-      acc = crc8_add(acc, ds2411_id[i]);
-    }
-    if(acc == crc) {
-#ifdef CONTIKI_TARGET_SKY
-      /* 00:12:75    Moteiv    # Moteiv Corporation */
-      ds2411_id[0] = 0x00;
-      ds2411_id[1] = 0x12;
-      ds2411_id[2] = 0x75;
-#endif /* CONTIKI_TARGET_SKY */
-      return 1;			/* Success! */
+      PRINTF("ds2411: wrong family %d\n", family);
+    } else {
+      acc = crc8_add(0x0, family);
+      for(i = 7; i >= 2; i--) {
+        acc = crc8_add(acc, ds2411_id[i]);
+      }
+      if(acc == crc) {
+#ifdef DS2411_OUI
+        const unsigned char oui[] = DS2411_OUI;
+        memcpy(ds2411_id, oui, sizeof(oui));
+#endif /* DS2411_OUI */
+
+#if DEBUG
+        {
+          int i;
+          PRINTF("DS2411: ");
+          for(i = 0; i < sizeof(ds2411_id) - 1; i++) {
+            PRINTF("%02x.", ds2411_id[i]);
+          }
+          PRINTF("%02x\n", ds2411_id[i]);
+        }
+#endif /* DEBUG */
+
+        return 1;			/* Success! */
+      }
+      PRINTF("ds2411: wrong crc\n");
     }
   }
 
- fail:
+  PRINTF("ds2411: failed\n");
   memset(ds2411_id, 0x0, sizeof(ds2411_id));
   return 0;			/* Fail! */
 }

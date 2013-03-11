@@ -33,7 +33,7 @@
 #include <string.h>
 
 #include "dev/cc2520.h"
-//#include "dev/ds2411.h"
+#include "dev/ds2411.h"
 #include "dev/leds.h"
 #include "dev/serial-line.h"
 #include "dev/slip.h"
@@ -135,20 +135,16 @@ set_rime_addr(void)
 
   //	Set node address
 #if UIP_CONF_IPV6
-  //memcpy(addr.u8, ds2411_id, sizeof(addr.u8));
-  n_addr.u8[7] = node_id & 0xff;
-  n_addr.u8[6] = node_id >> 8;
+  memcpy(n_addr.u8, ds2411_id, sizeof(n_addr.u8));
 #else
- /* if(node_id == 0) {
+ if(node_id == 0) {
     for(i = 0; i < sizeof(rimeaddr_t); ++i) {
-      addr.u8[i] = ds2411_id[7 - i];
+      n_addr.u8[i] = ds2411_id[7 - i];
     }
   } else {
-    addr.u8[0] = node_id & 0xff;
-    addr.u8[1] = node_id >> 8;
-  }*/
-  n_addr.u8[0] = node_id & 0xff;
-  n_addr.u8[1] = node_id >> 8;
+    n_addr.u8[0] = node_id & 0xff;
+    n_addr.u8[1] = node_id >> 8;
+  }
 #endif
 
   rimeaddr_set_node_addr(&n_addr);
@@ -214,12 +210,12 @@ main(int argc, char **argv)
   clock_wait(1);
 
   leds_on(LEDS_GREEN);
-  //ds2411_init();
+  ds2411_init();
 
   /* XXX hack: Fix it so that the 802.15.4 MAC address is compatible
      with an Ethernet MAC address - byte 0 (byte 2 in the DS ID)
      cannot be odd. */
-  //ds2411_id[2] &= 0xfe;
+  ds2411_id[2] &= 0xfe;
 
   leds_on(LEDS_BLUE);
   //xmem_init();
