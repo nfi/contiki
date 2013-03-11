@@ -181,6 +181,21 @@ clock_delay(unsigned int i)
   }
 }
 /*---------------------------------------------------------------------------*/
+void
+clock_delay_usec(uint16_t usec)
+{
+  if(usec < 10) {
+    do {
+      _NOP();
+    } while(usec-- > 0);
+  } else {
+    do {
+      __delay_cycles((9 * F_CPU) / 1000000L); /* 1 at 3.9MHz */
+      usec -= 10;
+    } while(usec > 10);
+  }
+}
+/*---------------------------------------------------------------------------*/
 /**
  * Wait for a multiple of 10 ms.
  *
