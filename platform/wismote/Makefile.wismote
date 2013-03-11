@@ -64,8 +64,8 @@ endif # IAR
 contiki-$(TARGET).a: ${addprefix $(OBJECTDIR)/,symbols.o}
 #	$(AR) rcf $@ $^
 
-ifndef UPORT
-UPORT=/dev/ttyUSB0
+ifndef PORT
+ PORT=/dev/ttyUSB0
 endif
 
 ifdef WITH_JTAG
@@ -85,9 +85,9 @@ else # WITH_JTAG
 	python -m msp430.memory.convert -i ihex -f titext $< -o $@
 
 %.upload: %.titext
-	python -m msp430.bsl5.uart -p $(UPORT) --erase=0x8000-0x3FFFF $<
+	python -m msp430.bsl5.uart -p $(PORT) --erase=0x8000-0x3FFFF $<
 
 endif # WITH_JTAG
 
 login:
-	$(CONTIKI)/tools/sky/serialdump-linux -b115200 $(UPORT)
+	$(CONTIKI)/tools/sky/serialdump-linux -b115200 $(PORT)
