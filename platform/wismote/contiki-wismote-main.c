@@ -240,7 +240,7 @@ main(int argc, char **argv)
   }
 #endif
 
-  //random_init(ds2411_id[0] + node_id);
+  random_init((ds2411_id[6] << 8) + ds2411_id[7] + node_id);
 
   leds_off(LEDS_BLUE);
   /*
