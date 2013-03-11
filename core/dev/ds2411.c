@@ -202,6 +202,8 @@ ds2411_init(void)
 
 #ifdef DS2411_INIT
   DS2411_INIT();
+
+  clock_wait(1);
 #endif
 
   if(owreset() == 0) {	/* Something pulled down 1-wire. */
