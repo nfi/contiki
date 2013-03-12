@@ -78,8 +78,7 @@
 /* Read one bit. */
 #define DS2411_READ() (DS2411_PORT(IN) & BV(DS2411_PIN))
 
-#define DS2411_UDELAY(u) clock_delay_usec(u)
-
-#define DS2411_UDELAY_6() __delay_cycles((6 * MSP430_CPU_SPEED) / 1000000)
+#define DS2411_UDELAY(u)					\
+  __delay_cycles((u * (MSP430_CPU_SPEED / 1000L)) / 1000L)
 
 #endif /* __DS2411_ARCH_H__ */
