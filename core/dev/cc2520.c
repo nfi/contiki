@@ -73,6 +73,22 @@
 #define LEDS_OFF(x)
 #endif
 
+/* Recommended txpower settings for CC2520. Any other values might
+   cause high energy consumption and overall poor performance.
+*/
+static const uint8_t txpower_values[] = {
+  0x03, /* -18 dBm */
+  0x2c, /*  -7 dBm */
+  0x88, /*  -4 dBm */
+  0x81, /*  -2 dBm */
+  0x32, /*   0 dBm */
+  0x13, /*   1 dBm */
+  0xab, /*   2 dBm */
+  0xf2, /*   3 dBm */
+  0xf7  /*   5 dBm */
+};
+#define TXPOWER_NUM (sizeof(txpower_values) / sizeof(uint8_t))
+
 void cc2520_arch_init(void);
 
 /* XXX hack: these will be made as Chameleon packet attributes */
@@ -235,7 +251,11 @@ setreg(uint16_t regname, uint8_t value)
 static void
 set_txpower(uint8_t power)
 {
-  setreg(CC2520_TXPOWER, power);
+  if(power >= TXPOWER_NUM) {
+    /* Too high transmission power - use maximal recommended */
+    power = TXPOWER_NUM - 1;
+  }
+  setreg(CC2520_TXPOWER, txpower_values[power]);
 }
 /*---------------------------------------------------------------------------*/
 #define AUTOCRC (1 << 6)
@@ -274,34 +294,16 @@ cc2520_init(void)
   /* Change default values as recommended in the data sheet, */
   /* correlation threshold = 20, RX bandpass filter = 1.3uA.*/
 
-  setreg(CC2520_TXCTRL,      0x94);
-  setreg(CC2520_TXPOWER,     0x13);    // Output power 1 dBm
-
-  /*
-
-	valeurs de TXPOWER
-	  0x03 -> -18 dBm
-	  0x2C -> -7 dBm
-	  0x88 -> -4 dBm
-	  0x81 -> -2 dBm
-	  0x32 -> 0 dBm
-	  0x13 -> 1 dBm
-	  0x32 -> 0 dBm
-	  0x13 -> 1 dBm
-	  0xAB -> 2 dBm
-	  0xF2 -> 3 dBm
-	  0xF7 -> 5 dBm
-  */
-  setreg(CC2520_CCACTRL0,    0xF8);  // CCA treshold -80dBm
+  setreg(CC2520_TXPOWER,     0x13);  // Output power 1 dBm
+  setreg(CC2520_CCACTRL0,    0xF8);  // CCA treshold -84dBm
 
   // Recommended RX settings
-  setreg(CC2520_MDMCTRL0,    0x84);  // Controls modem
+  setreg(CC2520_MDMCTRL0,    0x85);  // Controls modem
   setreg(CC2520_MDMCTRL1,    0x14);  // Controls modem
   setreg(CC2520_RXCTRL,      0x3F);  // Adjust currents in RX related analog modules
   setreg(CC2520_FSCTRL,      0x5A);  // Adjust currents in synthesizer.
   setreg(CC2520_FSCAL1,      0x2B);  // Adjust currents in VCO
   setreg(CC2520_AGCCTRL1,    0x11);  // Adjust target value for AGC control loop
-  setreg(CC2520_AGCCTRL2,    0xEB);
 
   //  Disable external clock
   setreg(CC2520_EXTCLOCK,    0x00);
@@ -316,7 +318,6 @@ cc2520_init(void)
   setreg(CC2520_FRMCTRL0,    AUTOCRC | AUTOACK);
   setreg(CC2520_FRMFILT0,    FRAME_MAX_VERSION|FRAME_FILTER_ENABLE);
 #else
-  /* setreg(CC2520_FRMCTRL0,    0x60); */
   setreg(CC2520_FRMCTRL0,    AUTOCRC);
   /* Disable filter on @ (remove if you want to address specific wismote) */
   setreg(CC2520_FRMFILT0,    0x00);
@@ -734,11 +735,18 @@ cc2520_set_txpower(uint8_t power)
 int
 cc2520_get_txpower(void)
 {
+  int i;
   uint8_t power;
   GET_LOCK();
   power = getreg(CC2520_TXPOWER);
   RELEASE_LOCK();
-  return power;
+  for(i = 0; i < TXPOWER_NUM; i++) {
+    if(txpower_values[i] == power) {
+      return i;
+    }
+  }
+  /* The current txpower is not one of the recommended values. */
+  return TXPOWER_NUM - 1;
 }
 /*---------------------------------------------------------------------------*/
 int

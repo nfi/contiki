@@ -68,7 +68,7 @@ extern const struct radio_driver cc2520_driver;
  */
 void cc2520_set_txpower(uint8_t power);
 int cc2520_get_txpower(void);
-#define CC2520_TXPOWER_MAX  31
+#define CC2520_TXPOWER_MAX   8
 #define CC2520_TXPOWER_MIN   0
 
 /**
