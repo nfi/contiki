@@ -122,9 +122,6 @@ force_inclusion(int d1, int d2)
 }
 #endif
 /*---------------------------------------------------------------------------*/
-#ifndef NODE_ID
-#define NODE_ID	0x03
-#endif /* NODE_ID */
 static void
 set_rime_addr(void)
 {
@@ -226,7 +223,11 @@ main(int argc, char **argv)
    * Hardware initialization done!
    */
 
+#ifdef NODE_ID
   node_id = NODE_ID;
+#else
+  node_id = (ds2411_id[6] << 8) + ds2411_id[7];
+#endif
 
   /* Restore node id if such has been stored in external mem */
   //node_id_restore();
