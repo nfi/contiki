@@ -41,7 +41,6 @@
 #define __UDPMAC_H__
 
 #include "net/mac/mac.h"
-#include "dev/radio.h"
 
 extern const struct mac_driver rime_udp_driver;
 

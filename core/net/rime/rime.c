@@ -58,7 +58,12 @@
 #include "net/rime/broadcast-announcement.h"
 #include "net/mac/mac.h"
 
+#if UIP_CONF_IPV6
+#define WITH_RIME_SNIFFERS 0
+#else
 #include "lib/list.h"
+#define WITH_RIME_SNIFFERS 1
+#endif
 
 #ifdef RIME_CONF_BROADCAST_ANNOUNCEMENT_CHANNEL
 #define BROADCAST_ANNOUNCEMENT_CHANNEL RIME_CONF_BROADCAST_ANNOUNCEMENT_CHANNEL
@@ -84,39 +89,60 @@
 #define BROADCAST_ANNOUNCEMENT_MAX_TIME CLOCK_SECOND * 3600UL
 #endif /* RIME_CONF_BROADCAST_ANNOUNCEMENT_MAX_TIME */
 
+#ifndef RIME_MAC
+#ifdef RIME_CONF_MAC
+#define RIME_MAC RIME_CONF_MAC
+#else  /* RIME_CONF_MAC */
+#define RIME_MAC NETSTACK_MAC
+#endif /* RIME_CONF_MAC */
+#endif /* RIME_MAC */
 
+#if WITH_RIME_SNIFFERS
 LIST(sniffers);
+#endif
 
 /*---------------------------------------------------------------------------*/
+#if WITH_RIME_SNIFFERS
 void
 rime_sniffer_add(struct rime_sniffer *s)
 {
   list_add(sniffers, s);
 }
+#endif
 /*---------------------------------------------------------------------------*/
+#if WITH_RIME_SNIFFERS
 void
 rime_sniffer_remove(struct rime_sniffer *s)
 {
   list_remove(sniffers, s);
 }
+#endif
 /*---------------------------------------------------------------------------*/
 static void
 input(void)
 {
+#if WITH_RIME_SNIFFERS
   struct rime_sniffer *s;
+#endif
   struct channel *c;
 
   RIMESTATS_ADD(rx);
   c = chameleon_parse();
-  
+
+#if WITH_RIME_SNIFFERS
   for(s = list_head(sniffers); s != NULL; s = list_item_next(s)) {
     if(s->input_callback != NULL) {
       s->input_callback();
     }
   }
-  
+#endif
+
   if(c != NULL) {
+    PRINTF("rime: receiving %u bytes for channel %u\n",
+           packetbuf_totlen(), c->channelno);
     abc_input(c);
+  } else {
+    PRINTF("rime: failed to handle data\n");
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -147,8 +173,10 @@ static void
 packet_sent(void *ptr, int status, int num_tx)
 {
   struct channel *c = ptr;
+#if WITH_RIME_SNIFFERS
   struct rime_sniffer *s;
-  
+#endif
+
   switch(status) {
   case MAC_TX_COLLISION:
     PRINTF("rime: collision after %d tx\n", num_tx);
@@ -163,12 +191,14 @@ packet_sent(void *ptr, int status, int num_tx)
     PRINTF("rime: error %d after %d tx\n", status, num_tx);
   }
 
+#if WITH_RIME_SNIFFERS
   /* Call sniffers, pass along the MAC status code. */
   for(s = list_head(sniffers); s != NULL; s = list_item_next(s)) {
     if(s->output_callback != NULL) {
       s->output_callback(status);
     }
   }
+#endif
 
   abc_sent(c, status, num_tx);
 }
@@ -180,7 +210,9 @@ rime_output(struct channel *c)
   if(chameleon_create(c)) {
     packetbuf_compact();
 
-    NETSTACK_MAC.send(packet_sent, c);
+    PRINTF("rime: sending %u bytes for channel %u\n",
+           packetbuf_totlen(), c->channelno);
+    RIME_MAC.send(packet_sent, c);
     return 1;
   }
   return 0;

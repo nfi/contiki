@@ -41,21 +41,13 @@
 
 #include "net/uip.h"
 #include "net/uip-udp-packet.h"
-#include "net/uip-netif.h"
+#include "net/rime.h"
 #include "net/rime/rime-udp.h"
 #include "net/packetbuf.h"
+#include "net/netstack.h"
 
-#define DEBUG 0
-#if DEBUG
-#include <stdio.h>
-#define PRINTF(...) printf(__VA_ARGS__)
-#define PRINT6ADDR(addr) PRINTF(" %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x ", ((uint8_t *)addr)[0], ((uint8_t *)addr)[1], ((uint8_t *)addr)[2], ((uint8_t *)addr)[3], ((uint8_t *)addr)[4], ((uint8_t *)addr)[5], ((uint8_t *)addr)[6], ((uint8_t *)addr)[7], ((uint8_t *)addr)[8], ((uint8_t *)addr)[9], ((uint8_t *)addr)[10], ((uint8_t *)addr)[11], ((uint8_t *)addr)[12], ((uint8_t *)addr)[13], ((uint8_t *)addr)[14], ((uint8_t *)addr)[15])
-#define PRINTLLADDR(lladdr) PRINTF(" %02x:%02x:%02x:%02x:%02x:%02x ",(lladdr)->addr[0], (lladdr)->addr[1], (lladdr)->addr[2], (lladdr)->addr[3],(lladdr)->addr[4], (lladdr)->addr[5])
-#else
-#define PRINTF(...)
-#define PRINT6ADDR(addr)
-#define PRINTLLADDR(addr)
-#endif
+#define DEBUG DEBUG_NONE
+#include "net/uip-debug.h"
 
 #ifndef RIME_CONF_UDP_PORT
 #define RIME_UDP_PORT		9508
@@ -63,11 +55,40 @@
 #define RIME_UDP_PORT		RIME_CONF_UDP_PORT
 #endif /* RIME_CONF_UDP_PORT */
 
+#define UIP_IP_BUF   ((struct uip_ip_hdr *)&uip_buf[UIP_LLH_LEN])
+
 static struct uip_udp_conn *broadcast_conn;
 static struct uip_udp_conn *unicast_conn;
 
-static void (* receiver_callback)(const struct mac_driver *);
-
+/*---------------------------------------------------------------------------*/
+static void
+addr_autoconf_set(uip_ipaddr_t *ipaddr, uip_lladdr_t *lladdr)
+{
+  /* We consider only links with IEEE EUI-64 identifier or
+     IEEE 48-bit MAC addresses */
+#if (UIP_LLADDR_LEN == 8)
+  memcpy(ipaddr->u8 + 8, lladdr, UIP_LLADDR_LEN);
+  ipaddr->u8[8] ^= 0x02;
+#elif (UIP_LLADDR_LEN == 6)
+  memcpy(ipaddr->u8 + 8, lladdr, 3);
+  ipaddr->u8[11] = 0xff;
+  ipaddr->u8[12] = 0xfe;
+  memcpy(ipaddr->u8 + 13, (uint8_t *)lladdr + 3, 3);
+  ipaddr->u8[8] ^= 0x02;
+#else
+  #error Illegal size of link address
+#endif
+}
+/*---------------------------------------------------------------------------*/
+static void
+set_addr(int addrtype, uip_ipaddr_t *ipaddr)
+{
+  rimeaddr_t addr;
+  rimeaddr_copy(&addr, (rimeaddr_t *) &ipaddr->u8[16 - RIMEADDR_SIZE]);
+  addr.u8[0] ^= 0x02;
+  packetbuf_set_addr(addrtype, &addr);
+}
+/*---------------------------------------------------------------------------*/
 PROCESS(rime_udp_process, "Rime over UDP process");
 
 PROCESS_THREAD(rime_udp_process, ev, data)
@@ -92,10 +113,11 @@ PROCESS_THREAD(rime_udp_process, ev, data)
   while(1) {
     PROCESS_WAIT_EVENT_UNTIL(ev == tcpip_event);
     if(uip_newdata()) {
-      packetbuf_clear();
-      memmove(packetbuf_hdrptr(), uip_appdata, uip_datalen());
+      packetbuf_copyfrom(uip_appdata, uip_datalen());
+      set_addr(PACKETBUF_ADDR_RECEIVER, &UIP_IP_BUF->destipaddr);
+      set_addr(PACKETBUF_ADDR_SENDER, &UIP_IP_BUF->srcipaddr);
       PRINTF("rime-udp: received %d bytes\n", uip_datalen());
-      receiver_callback(&rime_udp_driver);
+      rime_driver.input();
     }
   }
 
@@ -109,7 +131,7 @@ send_packet(mac_callback_t sent_callback, void *ptr)
 
   addr = packetbuf_addr(PACKETBUF_ADDR_RECEIVER);
   PRINTF("rime-udp: Sending %d bytes to %d.%d\n", packetbuf_totlen(),
-         addr->u8[0], addr->u8[1]);
+         addr->u8[sizeof(rimeaddr_t) - 2], addr->u8[sizeof(rimeaddr_t) - 1]);
 
   if(rimeaddr_cmp(&rimeaddr_null, addr)) {
     uip_udp_packet_send(broadcast_conn,
@@ -117,7 +139,7 @@ send_packet(mac_callback_t sent_callback, void *ptr)
     mac_call_sent_callback(sent_callback, ptr, MAC_TX_OK, 1);
   } else {
     uip_ip6addr(&unicast_conn->ripaddr, 0xfe80, 0, 0, 0, 0, 0, 0, 0);
-    uip_netif_addr_autoconf_set(&unicast_conn->ripaddr, (uip_lladdr_t *)addr);
+    addr_autoconf_set(&unicast_conn->ripaddr, (uip_lladdr_t *)addr);
     uip_udp_packet_send(unicast_conn,
                         packetbuf_hdrptr(), packetbuf_totlen());
     uip_create_unspecified(&unicast_conn->ripaddr);
@@ -125,17 +147,9 @@ send_packet(mac_callback_t sent_callback, void *ptr)
   return;
 }
 /*---------------------------------------------------------------------------*/
-static int
+static void
 input_packet(void)
 {
-  packetbuf_set_datalen(uip_datalen());
-  return uip_datalen();
-}
-/*---------------------------------------------------------------------------*/
-static void
-set_receive_function(void (* recv)(const struct mac_driver *))
-{
-  receiver_callback = recv;
 }
 /*---------------------------------------------------------------------------*/
 static int
@@ -156,11 +170,12 @@ check_interval(void)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
-static int
+static void
 init(void)
 {
+  PRINTF("rime-udp: initialized\n");
+  rime_driver.init();
   process_start(&rime_udp_process, NULL);
-  return 1;
 }
 /*---------------------------------------------------------------------------*/
 const struct mac_driver rime_udp_driver = {

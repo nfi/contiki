@@ -1,10 +1,16 @@
+RIME_COMMON    = rimeaddr.c timesynch.c rimestats.c
+
 ifdef UIP_CONF_IPV6
-#RIME_UIP6      = rime-udp.c
-RIME_BASE      = rimeaddr.c timesynch.c rimestats.c
+ ifdef WITH_RIME
+  RIME_UIP6      = rime-udp.c
+ endif
 else
+ WITH_RIME = 1
+endif
+
+ifdef WITH_RIME
 RIME_CHAMELEON = chameleon.c channel.c chameleon-raw.c chameleon-bitopt.c
-RIME_BASE      = rimeaddr.c rime.c timesynch.c \
-                 rimestats.c announcement.c polite-announcement.c \
+RIME_BASE      = rime.c announcement.c polite-announcement.c \
                  broadcast-announcement.c
 RIME_SINGLEHOP = broadcast.c stbroadcast.c unicast.c stunicast.c \
                  runicast.c abc.c \
@@ -14,9 +20,10 @@ RIME_MESH      = mesh.c route.c route-discovery.c
 RIME_COLLECT   = collect.c collect-neighbor.c neighbor-discovery.c \
 		 collect-link-estimate.c
 RIME_RUDOLPH   = rudolph0.c rudolph1.c rudolph2.c
-endif # UIP_CONF_IPV6
+endif # WITH_RIME
 
-CONTIKI_SOURCEFILES += $(RIME_BASE) \
+CONTIKI_SOURCEFILES += $(RIME_COMMON) \
+               $(RIME_BASE) \
                $(RIME_SINGLEHOP) \
                $(RIME_MULTIHOP) \
                $(RIME_MESH) \
