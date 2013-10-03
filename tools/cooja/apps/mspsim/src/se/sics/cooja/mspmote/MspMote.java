@@ -62,6 +62,7 @@ import se.sics.mspsim.cli.CommandContext;
 import se.sics.mspsim.cli.CommandHandler;
 import se.sics.mspsim.cli.LineListener;
 import se.sics.mspsim.cli.LineOutputStream;
+import se.sics.mspsim.chip.DS2411;
 import se.sics.mspsim.core.EmulationException;
 import se.sics.mspsim.core.MSP430;
 import se.sics.mspsim.platform.GenericNode;
@@ -234,7 +235,11 @@ public abstract class MspMote extends AbstractEmulatedMote implements Mote, Watc
   }
 
   /* called when moteID is updated */
-  public void idUpdated(int newID) {
+  public void idUpdated(int id) {
+      DS2411 ds2411 = myCpu.getChip(DS2411.class);
+      if (ds2411 != null) {
+          ds2411.setMACID(id & 0xff, id & 0xff, id & 0xff, (id >> 8) & 0xff, id & 0xff, id & 0xff);
+      }
   }
 
   public MoteType getType() {
