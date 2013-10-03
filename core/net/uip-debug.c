@@ -43,6 +43,10 @@
 void
 uip_debug_ipaddr_print(const uip_ipaddr_t *addr)
 {
+  if(addr == NULL) {
+    PRINTA("null");
+    return;
+  }
 #if UIP_CONF_IPV6
   uint16_t a;
   unsigned int i;
@@ -70,6 +74,10 @@ uip_debug_ipaddr_print(const uip_ipaddr_t *addr)
 void
 uip_debug_lladdr_print(const uip_lladdr_t *addr)
 {
+  if(addr == NULL) {
+    PRINTA("null");
+    return;
+  }
   unsigned int i;
   for(i = 0; i < sizeof(uip_lladdr_t); i++) {
     if(i > 0) {
