@@ -48,10 +48,8 @@
 #include "dev/rom.h"
 #include "dev/xmem.h"
 
-#define NDEBUG
-#include <assert.h>
-
-#ifdef NDEBUG
+#define DEBUG 0
+#if DEBUG
 #define PRINTF(...) do {} while (0)
 #else
 #define PRINTF(...) printf(__VA_ARGS__)
@@ -117,7 +115,6 @@ elfloader_load(off_t eepromaddr)
   PRINTF("elfloader: copy text segment to RAM %p %p\n",
 	 h.data, h.data + h.textsize);
   ret = xmem_pread(datamemory, h.textsize, eepromaddr + h.textoff); 
-  assert(ret > 0);
   if(h.textrelasize > 0) {
     PRINTF("elfloader: relocate text in RAM\n");
     ret = cle_relocate(&h,
@@ -137,14 +134,11 @@ elfloader_load(off_t eepromaddr)
 
   ret = rom_erase((h.textsize+ROM_ERASE_UNIT_SIZE) & ~(ROM_ERASE_UNIT_SIZE-1),
 		  h.text);
-  assert(ret > 0);
   ret = rom_pwrite(datamemory, h.textsize, h.text);
-  assert(ret > 0);
 
   PRINTF("elfloader: copy data segment to RAM %p %p\n",
 	 h.data, h.data + h.datasize);
   ret = xmem_pread(datamemory, h.datasize, eepromaddr + h.dataoff); 
-  assert(ret >= h.datasize);
   if(h.datarelasize > 0) {
     PRINTF("elfloader: relocate data segment\n");
     ret = cle_relocate(&h,

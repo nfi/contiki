@@ -42,7 +42,6 @@
 
 #include "contiki.h"
 #include "contiki-net.h"
-#include <assert.h>
 
 #include "dev/serial-line.h"
 
@@ -327,7 +326,6 @@ main(int argc, char **argv)
         interface_count++;
       }
     }
-    assert(0 < interface_count);
   }
 #endif
 
@@ -399,14 +397,6 @@ uip_log(char *m)
   printf("uIP: '%s'\n", m);
 }
 /*---------------------------------------------------------------------------*/
-void
-_xassert(const char *file, int line)
-{
-  fprintf(stderr, "%s:%u: failed assertion\n", file, line);
-  abort();
-}
-
-
 unsigned short
 sensors_light1(void)
 {

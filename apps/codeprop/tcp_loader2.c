@@ -43,9 +43,6 @@
 
 #include "dev/xmem.h"
 
-#define NDEBUG
-#include <assert.h>
-
 #include "codeprop.h"
 
 #define PRINTF(x)
@@ -63,8 +60,7 @@ struct codeprop_state {
 static
 PT_THREAD(recv_tcpthread(struct pt *pt))
 {
-  register int ret;
-  
+
   PT_BEGIN(pt);
 
   /* Read the header. */
@@ -81,14 +77,12 @@ PT_THREAD(recv_tcpthread(struct pt *pt))
   uip_appdata += sizeof(struct codeprop_tcphdr);
   uip_len -= sizeof(struct codeprop_tcphdr);
 
-  ret = xmem_erase(XMEM_ERASE_UNIT_SIZE, EEPROMFS_ADDR_CODEPROP);
-  assert(ret == 0);
+  xmem_erase(XMEM_ERASE_UNIT_SIZE, EEPROMFS_ADDR_CODEPROP);
 
   /* Read the rest of the data. */
   do {      
     if(uip_len > 0) {
-      ret = xmem_pwrite(uip_appdata, uip_len, EEPROMFS_ADDR_CODEPROP + s.addr);
-      assert(ret = uip_len);
+      xmem_pwrite(uip_appdata, uip_len, EEPROMFS_ADDR_CODEPROP + s.addr);
       s.addr += uip_len;
     }
     if(s.addr < s.len) {

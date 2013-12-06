@@ -39,8 +39,6 @@
 
 #include "lib/malloc.h"
 
-#include <assert.h>
-
 #if 1
 #define PRINTF(...) do {} while (0)
 #else
@@ -95,7 +93,6 @@ cmod_load(unsigned imod,
   PRINTF("cmod: copy text segment to RAM %p %p\n",
 	 h.text, h.text + h.textsize);
   ret = pread((void *)h.text, h.textsize, off + h.textoff); 
-  assert(ret > 0);
   if(h.textrelasize > 0) {
     PRINTF("cmod: relocate text in RAM\n");
     ret = cle_relocate(&h,
@@ -112,7 +109,6 @@ cmod_load(unsigned imod,
   PRINTF("cmod: copy data segment to RAM %p %p\n",
 	 h.data, h.data + h.datasize);
   ret = pread(h.data, h.datasize, off + h.dataoff); 
-  assert(ret >= 0);
   if(h.datarelasize > 0) {
     PRINTF("cmod: relocate data segment\n");
     ret = cle_relocate(&h,

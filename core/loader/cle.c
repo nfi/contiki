@@ -41,10 +41,8 @@
 #include "loader/cle.h"
 #include "loader/sym.h"
 
-#define NDEBUG
-#include <assert.h>
-
-#ifdef NDEBUG
+#define DEBUG 0
+#if DEBUG
 #define PRINTF(...) do {} while (0)
 #else
 #define PRINTF(...) printf(__VA_ARGS__)
@@ -88,12 +86,11 @@ cle_read_info(struct cle_info *info,
   cle_half shnum;		/* number shdrs */
   cle_half shentsize;		/* sizeof shdr */
   cle_word strtabsize = 0;
-  int i, ret;
+  int i;
 
   memset(info, 0x0, sizeof(*info));
 
-  ret = pread(&ehdr, sizeof(ehdr), hdr);
-  assert(ret > 0);
+  pread(&ehdr, sizeof(ehdr), hdr);
 
   /* Make sure that we have a correct and compatible ELF header. */
   if(memcmp(ehdr.e_ident, ELF_MAGIC_HEADER, ELF_MAGIC_HEADER_SIZE) != 0) {
@@ -105,8 +102,7 @@ cle_read_info(struct cle_info *info,
   shnum = ehdr.e_shnum;
 
   /* The string table section: holds the names of the sections. */
-  ret = pread(&shdr, sizeof(shdr), shoff + shentsize*ehdr.e_shstrndx);
-  assert(ret > 0);
+  pread(&shdr, sizeof(shdr), shoff + shentsize*ehdr.e_shstrndx);
 
   /* BEWARE THAT ehdr IS NOW OVERWRITTEN!!! */
 
@@ -132,12 +128,10 @@ cle_read_info(struct cle_info *info,
    * relocator code.
    */
   for(i = 0; i < shnum; ++i) {
-    ret = pread(&shdr, sizeof(shdr), shoff);
-    assert(ret > 0);
-    
+    pread(&shdr, sizeof(shdr), shoff);
+
     /* The name of the section is contained in the strings table. */
-    ret = pread(info->name, sizeof(info->name), hdr + strs + shdr.sh_name);
-    assert(ret > 0);
+    pread(info->name, sizeof(info->name), hdr + strs + shdr.sh_name);
 
     if(strncmp(info->name, ".text", 5) == 0) {
       info->textoff = shdr.sh_offset;
@@ -210,11 +204,9 @@ cle_relocate(struct cle_info *info,
       off < hdr + reloff + relsize;
       off += sizeof(struct elf32_rela)) {
     ret = pread(&rela, sizeof(rela), off);
-    assert(ret > 0);
     ret = pread(&s, sizeof(s),
 	       hdr + info->symtaboff
 	       + sizeof(struct elf32_sym)*ELF32_R_SYM(rela.r_info));
-    assert(ret > 0);
 
     if(s.st_shndx == info->bss_shndx) {
       addr = (cle_addr)(uintptr_t)info->bss;
@@ -233,7 +225,6 @@ cle_relocate(struct cle_info *info,
     } else {
       ret = pread(info->name, sizeof(info->name),
 		  hdr + info->strtaboff + s.st_name);
-      assert(ret > 0);
       cle_addr sym = (cle_addr)(uintptr_t)sym_function(info->name);
 #ifdef __AVR__
       if(sym != NOLL)
@@ -288,12 +279,10 @@ cle_lookup(struct cle_info *info,
       a < hdr + info->symtaboff + info->symtabsize;
       a += sizeof(s)) {
     ret = pread(&s, sizeof(s), a);
-    assert(ret > 0);
 
     if(s.st_name != 0) {
       ret = pread(info->name, sizeof(info->name),
 		 hdr + info->strtaboff + s.st_name);
-      assert(ret > 0);
 
       if(strcmp(info->name, symbol) == 0) { /* Exported symbol found. */
 	if(s.st_shndx == info->bss_shndx) {
