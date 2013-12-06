@@ -42,7 +42,7 @@
 
 #include "contiki.h"
 #include "contiki-net.h"
-#include "lib/assert.h"
+#include <assert.h>
 
 #include "dev/serial-line.h"
 

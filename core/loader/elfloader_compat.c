@@ -49,7 +49,7 @@
 #include "dev/xmem.h"
 
 #define NDEBUG
-#include "lib/assert.h"
+#include <assert.h>
 
 #ifdef NDEBUG
 #define PRINTF(...) do {} while (0)

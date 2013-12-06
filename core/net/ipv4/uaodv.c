@@ -44,9 +44,6 @@
 #include "net/ipv4/uaodv-def.h"
 #include "net/ipv4/uaodv-rt.h"
 
-#define NDEBUG
-#include "lib/assert.h"
-
 #ifdef CC2420_RADIO
 #include "cc2420.h"
 #define RSSI_THRESHOLD -39	/* accept -39 ... xx */
@@ -99,7 +96,8 @@ fwc_add(const uip_ipaddr_t *orig, const uint32_t *id)
   uip_ipaddr_copy(&fwcache[n].orig, orig);
 }
 
-#ifdef NDEBUG
+#define DEBUG 0
+#if DEBUG
 #define PRINTF(...) do {} while (0)
 #define print_debug(...) do{}while(0)
 #else

@@ -39,10 +39,8 @@
 #include "loader/elf32.h"
 #include "loader/cle.h"
 
-#define NDEBUG
-#include "lib/assert.h"
-
-#ifdef NDEBUG
+#define DEBUG 0
+#if DEBUG
 #define PRINTF(...) do {} while (0)
 #else
 #define PRINTF(...) printf(__VA_ARGS__)

@@ -39,7 +39,7 @@
 
 #include "lib/malloc.h"
 
-#include "lib/assert.h"
+#include <assert.h>
 
 #if 1
 #define PRINTF(...) do {} while (0)
