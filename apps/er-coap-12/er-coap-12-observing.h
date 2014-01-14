@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Institute for Pervasive Computing, ETH Zurich
+ * Copyright (c) 2012, Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,11 +40,11 @@
 #define COAP_OBSERVING_H_
 
 #include "sys/stimer.h"
-#include "er-coap-07.h"
-#include "er-coap-07-transactions.h"
+#include "er-coap-12.h"
+#include "er-coap-12-transactions.h"
 
 #ifndef COAP_MAX_OBSERVERS
-#define COAP_MAX_OBSERVERS      4
+#define COAP_MAX_OBSERVERS    COAP_MAX_OPEN_TRANSACTIONS-1
 #endif /* COAP_MAX_OBSERVERS */
 
 /* Interval in seconds in which NON notifies are changed to CON notifies to check client. */

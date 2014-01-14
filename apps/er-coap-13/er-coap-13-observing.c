@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Institute for Pervasive Computing, ETH Zurich
+ * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,7 +39,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "er-coap-07-observing.h"
+#include "er-coap-13-observing.h"
 
 #define DEBUG 0
 #if DEBUG
@@ -139,7 +139,7 @@ coap_remove_observer_by_url(uip_ipaddr_t *addr, uint16_t port, const char *url)
   for (obs = (coap_observer_t*)list_head(observers_list); obs; obs = obs->next)
   {
     PRINTF("Remove check URL %p\n", url);
-    if (uip_ipaddr_cmp(&obs->addr, addr) && obs->port==port && (obs->url==url || memcmp(obs->url, url, strlen(obs->url))==0))
+    if ((addr==NULL || (uip_ipaddr_cmp(&obs->addr, addr) && obs->port==port)) && (obs->url==url || memcmp(obs->url, url, strlen(obs->url))==0))
     {
       coap_remove_observer(obs);
       removed++;
@@ -195,7 +195,7 @@ coap_notify_observers(resource_t *resource, int32_t obs_counter, void *notificat
 
         /* Prepare response */
         coap_res->mid = transaction->mid;
-        coap_set_header_observe(coap_res, obs_counter);
+        if (obs_counter>=0) coap_set_header_observe(coap_res, obs_counter);
         coap_set_header_token(coap_res, obs->token, obs->token_len);
 
         /* Use CON to check whether client is still there/interested after COAP_OBSERVING_REFRESH_INTERVAL. */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Institute for Pervasive Computing, ETH Zurich
+ * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,53 +31,36 @@
 
 /**
  * \file
- *      CoAP module for observing resources
+ *      CoAP module for separate responses
  * \author
  *      Matthias Kovatsch <kovatsch@inf.ethz.ch>
  */
 
-#ifndef COAP_OBSERVING_H_
-#define COAP_OBSERVING_H_
+#ifndef COAP_SEPARATE_H_
+#define COAP_SEPARATE_H_
 
-#include "sys/stimer.h"
-#include "er-coap-07.h"
-#include "er-coap-07-transactions.h"
+#include "er-coap-13.h"
 
-#ifndef COAP_MAX_OBSERVERS
-#define COAP_MAX_OBSERVERS      4
-#endif /* COAP_MAX_OBSERVERS */
+typedef struct coap_separate {
 
-/* Interval in seconds in which NON notifies are changed to CON notifies to check client. */
-#define COAP_OBSERVING_REFRESH_INTERVAL  60
-
-#if COAP_MAX_OPEN_TRANSACTIONS<COAP_MAX_OBSERVERS
-#warning "COAP_MAX_OPEN_TRANSACTIONS smaller than COAP_MAX_OBSERVERS: cannot handle CON notifications"
-#endif
-
-typedef struct coap_observer {
-  struct coap_observer *next; /* for LIST */
-
-  const char *url;
   uip_ipaddr_t addr;
   uint16_t port;
+
+  coap_message_type_t type;
+  uint16_t mid;
+
   uint8_t token_len;
   uint8_t token[COAP_TOKEN_LEN];
-  uint16_t last_mid;
-  struct stimer refresh_timer;
-} coap_observer_t;
 
-list_t coap_get_observers(void);
+  /* separate + blockwise is untested! */
+  uint32_t block2_num;
+  uint16_t block2_size;
 
-coap_observer_t *coap_add_observer(uip_ipaddr_t *addr, uint16_t port, const uint8_t *token, size_t token_len, const char *url);
+} coap_separate_t;
 
-void coap_remove_observer(coap_observer_t *o);
-int coap_remove_observer_by_client(uip_ipaddr_t *addr, uint16_t port);
-int coap_remove_observer_by_token(uip_ipaddr_t *addr, uint16_t port, uint8_t *token, size_t token_len);
-int coap_remove_observer_by_url(uip_ipaddr_t *addr, uint16_t port, const char *url);
-int coap_remove_observer_by_mid(uip_ipaddr_t *addr, uint16_t port, uint16_t mid);
+int coap_separate_handler(resource_t *resource, void *request, void *response);
+void coap_separate_reject();
+int coap_separate_accept(void *request, coap_separate_t *separate_store);
+void coap_separate_resume(void *response, coap_separate_t *separate_store, uint8_t code);
 
-void coap_notify_observers(resource_t *resource, int32_t obs_counter, void *notification);
-
-void coap_observe_handler(resource_t *resource, void *request, void *response);
-
-#endif /* COAP_OBSERVING_H_ */
+#endif /* COAP_SEPARATE_H_ */
