@@ -70,6 +70,12 @@ extern speed_t slip_config_b_rate;
 #define SEND_DELAY 0
 #endif
 
+#ifdef SLIP_DEV_CONF_BUFFER_SIZE
+#define SLIP_DEV_BUFFER_SIZE SLIP_DEV_CONF_BUFFER_SIZE
+#else
+#define SLIP_DEV_BUFFER_SIZE 2048
+#endif
+
 int devopen(const char *dev, int flags);
 
 static FILE *inslip;
@@ -176,7 +182,7 @@ slip_packet_input(unsigned char *data, int len)
 void
 serial_input(FILE *inslip)
 {
-  static unsigned char inbuf[2048];
+  static unsigned char inbuf[SLIP_DEV_BUFFER_SIZE];
   static int inbufptr = 0;
   int ret,i;
   unsigned char c;
@@ -280,7 +286,7 @@ serial_input(FILE *inslip)
   goto read_more;
 }
 
-unsigned char slip_buf[2048];
+unsigned char slip_buf[SLIP_DEV_BUFFER_SIZE];
 int slip_end, slip_begin, slip_packet_end, slip_packet_count;
 static struct timer send_delay_timer;
 /* delay between slip packets */
