@@ -179,6 +179,16 @@ exit(1);
   case 115200:
     slip_config_b_rate = B115200;
     break;
+#ifdef B230400
+  case 230400:
+    slip_config_b_rate = B230400;
+    break;
+#endif
+#ifdef B460800
+  case 460800:
+    slip_config_b_rate = B460800;
+    break;
+#endif
 #ifdef linux
   case 921600:
     slip_config_b_rate = B921600;
