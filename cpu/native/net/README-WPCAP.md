@@ -5,12 +5,12 @@ implemented based on the quite popular WinPcap library that is available at
 Developing Contiki network applications most likely involves working with a
 network protocol analyzer. Wireshark (formerly known as Ethereal) is a very
 popular one that on Windows uses - and actually comes with - the WinPcap
-libary. Wireshark is available at [http://wireshark.org](http://wireshark.org).
+library. Wireshark is available at [http://wireshark.org](http://wireshark.org).
 
 So with Wireshark installed Contiki network I/O doesn't need any additional
 components.
 
-On Windows every Contiki application has one obligatory comand line argument
+On Windows every Contiki application has one obligatory command line argument
 that identifies the Windows network interface to be used by Contiki. While on
 Unix those network interfaces are called i.e. '/dev/tap0' they have on Windows
 names like
@@ -46,5 +46,5 @@ loopback interface as not a true network interface that connects to a network.
 This results in generally deactivating both the network identification process
 and the firewall for the loopback interface. The details are available in the
 Microsoft TechNet Forums thread 'Vista Network Identification for Loopback
-Adpater' that is currently available at
+Adapter' that is currently available at
 [link](http://social.technet.microsoft.com/Forums/windows/en-US/66b42761-1b8e-4302-9134-0bb685139f4e/vista-network-identification-for-loopback-adpater)
