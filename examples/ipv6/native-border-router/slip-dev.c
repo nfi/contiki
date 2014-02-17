@@ -61,7 +61,6 @@ extern int slip_config_flowcontrol;
 extern const char *slip_config_siodev;
 extern const char *slip_config_host;
 extern const char *slip_config_port;
-extern uint16_t slip_config_basedelay;
 extern speed_t slip_config_b_rate;
 
 #ifdef SLIP_DEV_CONF_SEND_DELAY
@@ -288,9 +287,18 @@ serial_input(FILE *inslip)
 
 unsigned char slip_buf[SLIP_DEV_BUFFER_SIZE];
 int slip_end, slip_begin, slip_packet_end, slip_packet_count;
-static struct timer send_delay_timer;
-/* delay between slip packets */
-static clock_time_t send_delay = SEND_DELAY;
+
+#if SEND_DELAY > 0
+static struct ctimer send_delay_timer;
+static void
+send_delay_callback(void *ptr)
+{
+  /* Nothing needs to be done here - the callback timer is just to
+     make sure that the application is not sleeping when it is time to
+     continue sending data.
+  */
+}
+#endif /* SEND_DELAY > 0 */
 /*---------------------------------------------------------------------------*/
 static void
 slip_send(int fd, unsigned char c)
@@ -349,10 +357,10 @@ slip_flushbuf(int fd)
             break;
           }
         }
+#if SEND_DELAY > 0
         /* a delay between slip packets to avoid losing data */
-        if(send_delay > 0) {
-          timer_set(&send_delay_timer, send_delay);
-        }
+        ctimer_restart(&send_delay_timer);
+#endif
       }
     }
   }
@@ -469,7 +477,11 @@ static int
 set_fd(fd_set *rset, fd_set *wset)
 {
   /* Anything to flush? */
-  if(!slip_empty() && (send_delay == 0 || timer_expired(&send_delay_timer))) {
+#if SEND_DELAY > 0
+  if(!slip_empty() && ctimer_expired(&send_delay_timer)) {
+#else
+  if(!slip_empty()) {
+#endif
     FD_SET(slipfd, wset);
   }
 
@@ -542,7 +554,12 @@ slip_init(void)
     stty_telos(slipfd);
   }
 
-  timer_set(&send_delay_timer, 0);
+#if SEND_DELAY > 0
+  ctimer_set(&send_delay_timer, SEND_DELAY, send_delay_callback, NULL);
+  /* Make sure the send delay timer is expired from start */
+  ctimer_stop(&send_delay_timer);
+#endif /* SEND_DELAY > 0 */
+
   slip_send(slipfd, SLIP_END);
   inslip = fdopen(slipfd, "r");
   if(inslip == NULL) {
