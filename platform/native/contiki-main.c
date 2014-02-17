@@ -69,6 +69,8 @@
 static const struct select_callback *select_callback[SELECT_MAX];
 static int select_max = 0;
 
+#define MAX_TICKS (~((clock_time_t)0) / 2)
+
 SENSORS(&pir_sensor, &vib_sensor, &button_sensor);
 
 static uint8_t serial_id[] = {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08};
@@ -161,6 +163,14 @@ char **contiki_argv;
 int
 main(int argc, char **argv)
 {
+  fd_set fdr;
+  fd_set fdw;
+  int maxfd;
+  int i;
+  int retval;
+  struct timeval tv;
+  clock_time_t remaining_time;
+
 #if UIP_CONF_IPV6
 #if UIP_CONF_IPV6_RPL
   printf(CONTIKI_VERSION_STRING " started with IPV6, RPL\n");
@@ -200,7 +210,8 @@ main(int argc, char **argv)
   queuebuf_init();
 
   netstack_init();
-  printf("MAC %s RDC %s NETWORK %s\n", NETSTACK_MAC.name, NETSTACK_RDC.name, NETSTACK_NETWORK.name);
+  printf("MAC %s RDC %s NETWORK %s\n", NETSTACK_MAC.name, NETSTACK_RDC.name,
+         NETSTACK_NETWORK.name);
 
 #if WITH_UIP6
   memcpy(&uip_lladdr.addr, serial_id, sizeof(uip_lladdr.addr));
@@ -235,18 +246,9 @@ main(int argc, char **argv)
   setvbuf(stdout, (char *)NULL, _IONBF, 0);
 
   select_set_callback(STDIN_FILENO, &stdin_fd);
+
   while(1) {
-    fd_set fdr;
-    fd_set fdw;
-    int maxfd;
-    int i;
-    int retval;
-    struct timeval tv;
-
     retval = process_run();
-
-    tv.tv_sec = 0;
-    tv.tv_usec = retval ? 1 : 1000;
 
     FD_ZERO(&fdr);
     FD_ZERO(&fdw);
@@ -254,6 +256,25 @@ main(int argc, char **argv)
     for(i = 0; i <= select_max; i++) {
       if(select_callback[i] != NULL && select_callback[i]->set_fd(&fdr, &fdw)) {
         maxfd = i;
+      }
+    }
+
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    if(!retval) {
+      if(etimer_pending()) {
+        remaining_time = etimer_next_expiration_time() - clock_time() - 1;
+        if(remaining_time < MAX_TICKS) {
+          tv.tv_sec = remaining_time / CLOCK_SECOND;
+          tv.tv_usec = (remaining_time % CLOCK_SECOND) * 1000;
+          if(tv.tv_usec == 0 && tv.tv_sec == 0) {
+            /* The clock time resolution on the native platform is a
+               millisecond. Use a short delay to avoid busy looping. */
+            tv.tv_usec = 500;
+          }
+        }
+      } else {
+        tv.tv_sec = 60;
       }
     }
 
@@ -269,7 +290,10 @@ main(int argc, char **argv)
       }
     }
 
-    etimer_request_poll();
+    if(etimer_pending() &&
+       (etimer_next_expiration_time() - clock_time() - 1) > MAX_TICKS) {
+      etimer_request_poll();
+    }
 
 #if WITH_GUI
     if(console_resize()) {
