@@ -168,111 +168,18 @@ static int cc2420_send(const void *data, unsigned short len);
 static int cc2420_receiving_packet(void);
 static int pending_packet(void);
 static int cc2420_cca(void);
-/*static int detected_energy(void);*/
+
+static radio_result_t get_value(radio_param_t param, radio_value_t *value);
+static radio_result_t set_value(radio_param_t param, radio_value_t value);
+static radio_result_t get_object(radio_param_t param, void *dest, size_t size);
+static radio_result_t set_object(radio_param_t param, const void *src, size_t size);
 
 signed char cc2420_last_rssi;
 uint8_t cc2420_last_correlation;
 
 static uint8_t receive_on;
+static uint8_t send_on_cca = WITH_SEND_CCA;
 static int channel;
-
-static radio_result_t
-get_value(radio_param_t param, radio_value_t *value)
-{
-  int i, v;
-
-  if(!value) {
-    return RADIO_RESULT_INVALID_VALUE;
-  }
-  switch(param) {
-  case RADIO_PARAM_POWER_MODE:
-    *value = receive_on ? RADIO_POWER_MODE_ON : RADIO_POWER_MODE_OFF;
-    return RADIO_RESULT_OK;
-  case RADIO_PARAM_CHANNEL:
-    *value = cc2420_get_channel();
-    return RADIO_RESULT_OK;
-  case RADIO_PARAM_TXPOWER:
-    v = cc2420_get_txpower();
-    *value = OUTPUT_POWER_MIN;
-    /* Find the actual estimated output power in conversion table */
-    for(i = 0; i < OUTPUT_NUM; i++) {
-      if(v >= output_power[i].config) {
-        *value = output_power[i].power;
-        break;
-      }
-    }
-    return RADIO_RESULT_OK;
-  case RADIO_PARAM_RSSI:
-    /* Return the RSSI value in dBm */
-    *value = cc2420_rssi() + RSSI_OFFSET;
-    return RADIO_RESULT_OK;
-  case RADIO_CONST_CHANNEL_MIN:
-    *value = 11;
-    return RADIO_RESULT_OK;
-  case RADIO_CONST_CHANNEL_MAX:
-    *value = 26;
-    return RADIO_RESULT_OK;
-  case RADIO_CONST_TXPOWER_MIN:
-    *value = OUTPUT_POWER_MIN;
-    return RADIO_RESULT_OK;
-  case RADIO_CONST_TXPOWER_MAX:
-    *value = OUTPUT_POWER_MAX;
-    return RADIO_RESULT_OK;
-  default:
-    return RADIO_RESULT_NOT_SUPPORTED;
-  }
-}
-
-static radio_result_t
-set_value(radio_param_t param, radio_value_t value)
-{
-  int i;
-
-  switch(param) {
-  case RADIO_PARAM_POWER_MODE:
-    if(value == RADIO_POWER_MODE_ON) {
-      cc2420_on();
-      return RADIO_RESULT_OK;
-    }
-    if(value == RADIO_POWER_MODE_OFF) {
-      cc2420_off();
-      return RADIO_RESULT_OK;
-    }
-    return RADIO_RESULT_INVALID_VALUE;
-  case RADIO_PARAM_CHANNEL:
-    if(value < 11 || value > 26) {
-      return RADIO_RESULT_INVALID_VALUE;
-    }
-    cc2420_set_channel(value);
-    return RADIO_RESULT_OK;
-  case RADIO_PARAM_TXPOWER:
-    if(value < OUTPUT_POWER_MIN || value > OUTPUT_POWER_MAX) {
-      return RADIO_RESULT_INVALID_VALUE;
-    }
-    /* Find the closest higher PA_LEVEL for the desired output power */
-    for(i = 1; i < OUTPUT_NUM; i++) {
-      if(value > output_power[i].power) {
-        break;
-      }
-    }
-    cc2420_set_txpower(output_power[i - 1].config);
-    return RADIO_RESULT_OK;
-  default:
-    return RADIO_RESULT_NOT_SUPPORTED;
-  }
-}
-
-static radio_result_t
-get_object(radio_param_t param, void *dest, size_t size)
-{
-  return RADIO_RESULT_NOT_SUPPORTED;
-}
-
-static radio_result_t
-set_object(radio_param_t param, const void *src, size_t size)
-{
-  return RADIO_RESULT_NOT_SUPPORTED;
-}
 
 const struct radio_driver cc2420_driver =
   {
@@ -281,8 +188,6 @@ const struct radio_driver cc2420_driver =
     cc2420_transmit,
     cc2420_send,
     cc2420_read,
-    /* cc2420_set_channel, */
-    /* detected_energy, */
     cc2420_cca,
     cc2420_receiving_packet,
     pending_packet,
@@ -391,6 +296,38 @@ static void RELEASE_LOCK(void) {
   locked--;
 }
 /*---------------------------------------------------------------------------*/
+static int
+lock_radio_on(void)
+{
+  GET_LOCK();
+
+  if(!receive_on) {
+    on();
+    return 1;
+  }
+
+  return 0;
+}
+/*---------------------------------------------------------------------------*/
+static void
+release_radio_on(int lock)
+{
+  if(lock) {
+    off();
+  }
+
+  RELEASE_LOCK();
+}
+/*---------------------------------------------------------------------------*/
+static void
+revcpy(uint8_t *dest, const uint8_t *src, int n)
+{
+  int i;
+  for(i = 0; i < n; i++) {
+    dest[i] = src[n - i - 1];
+  }
+}
+/*---------------------------------------------------------------------------*/
 static unsigned
 getreg(enum cc2420_register regname)
 {
@@ -406,9 +343,21 @@ setreg(enum cc2420_register regname, unsigned value)
 }
 /*---------------------------------------------------------------------------*/
 static void
+read_ram(void *buf, uint16_t addr, int count)
+{
+  CC2420_READ_RAM(buf, addr, count);
+}
+/*---------------------------------------------------------------------------*/
+static void
 write_ram(const void *buf, uint16_t addr, int count)
 {
   CC2420_WRITE_RAM(buf, addr, count);
+}
+/*---------------------------------------------------------------------------*/
+static void
+write_txfifo(const void *buf, int count)
+{
+  CC2420_WRITE_FIFO_BUF(buf, count);
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -525,13 +474,13 @@ cc2420_transmit(unsigned short payload_len)
 #define LOOP_20_SYMBOLS CC2420_CONF_SYMBOL_LOOP_COUNT
 #endif
 
-#if WITH_SEND_CCA
-  strobe(CC2420_SRXON);
-  wait_for_status(BV(CC2420_RSSI_VALID));
-  strobe(CC2420_STXONCCA);
-#else /* WITH_SEND_CCA */
-  strobe(CC2420_STXON);
-#endif /* WITH_SEND_CCA */
+  if(send_on_cca) {
+    strobe(CC2420_SRXON);
+    wait_for_status(BV(CC2420_RSSI_VALID));
+    strobe(CC2420_STXONCCA);
+  } else {
+    strobe(CC2420_STXON);
+  }
   for(i = LOOP_20_SYMBOLS; i > 0; i--) {
     if(CC2420_SFD_IS_1) {
       {
@@ -581,7 +530,7 @@ cc2420_transmit(unsigned short payload_len)
     }
   }
 
-  /* If we are using WITH_SEND_CCA, we get here if the packet wasn't
+  /* If we are using send on CCA, we get here if the packet wasn't
      transmitted because of other channel activity. */
   RIMESTATS_ADD(contentiondrop);
   PRINTF("cc2420: do_send() transmission never started\n");
@@ -618,10 +567,10 @@ cc2420_prepare(const void *payload, unsigned short payload_len)
   checksum = crc16_data(payload, payload_len, 0);
 #endif /* CC2420_CONF_CHECKSUM */
   total_len = payload_len + AUX_LEN;
-  CC2420_WRITE_FIFO_BUF(&total_len, 1);
-  CC2420_WRITE_FIFO_BUF(payload, payload_len);
+  write_txfifo(&total_len, 1);
+  write_txfifo(payload, payload_len);
 #if CC2420_CONF_CHECKSUM
-  CC2420_WRITE_FIFO_BUF(&checksum, CHECKSUM_LEN);
+  write_txfifo(&checksum, CHECKSUM_LEN);
 #endif /* CC2420_CONF_CHECKSUM */
 
   RELEASE_LOCK();
@@ -726,7 +675,6 @@ cc2420_set_pan_addr(unsigned pan,
                     unsigned addr,
                     const uint8_t *ieee_addr)
 {
-  uint16_t f = 0;
   uint8_t tmp[2];
 
   GET_LOCK();
@@ -746,9 +694,7 @@ cc2420_set_pan_addr(unsigned pan,
   if(ieee_addr != NULL) {
     uint8_t tmp_addr[8];
     /* LSB first, MSB last for 802.15.4 addresses in CC2420 */
-    for (f = 0; f < 8; f++) {
-      tmp_addr[7 - f] = ieee_addr[f];
-    }
+    revcpy(tmp_addr, ieee_addr, 8);
     write_ram(tmp_addr, CC2420RAM_IEEEADDR, 8);
   }
   RELEASE_LOCK();
@@ -913,42 +859,26 @@ int
 cc2420_rssi(void)
 {
   int rssi;
-  int radio_was_off = 0;
+  int lock;
 
   if(locked) {
     return 0;
   }
-  
-  GET_LOCK();
 
-  if(!receive_on) {
-    radio_was_off = 1;
-    cc2420_on();
-  }
+  lock = lock_radio_on();
   wait_for_status(BV(CC2420_RSSI_VALID));
 
   rssi = (int)((signed char)getreg(CC2420_RSSI));
 
-  if(radio_was_off) {
-    cc2420_off();
-  }
-  RELEASE_LOCK();
+  release_radio_on(lock);
   return rssi;
 }
-/*---------------------------------------------------------------------------*/
-/*
-static int
-detected_energy(void)
-{
-  return cc2420_rssi();
-}
-*/
 /*---------------------------------------------------------------------------*/
 static int
 cc2420_cca(void)
 {
   int cca;
-  int radio_was_off = 0;
+  int lock;
 
   /* If the radio is locked by an underlying thread (because we are
      being invoked through an interrupt), we preted that the coast is
@@ -958,29 +888,12 @@ cc2420_cca(void)
     return 1;
   }
 
-  GET_LOCK();
-  if(!receive_on) {
-    radio_was_off = 1;
-    cc2420_on();
-  }
-
-  /* Make sure that the radio really got turned on. */
-  if(!receive_on) {
-    RELEASE_LOCK();
-    if(radio_was_off) {
-      cc2420_off();
-    }
-    return 1;
-  }
-
+  lock = lock_radio_on();
   wait_for_status(BV(CC2420_RSSI_VALID));
 
   cca = CC2420_CCA_IS_1;
 
-  if(radio_was_off) {
-    cc2420_off();
-  }
-  RELEASE_LOCK();
+  release_radio_on(lock);
   return cca;
 }
 /*---------------------------------------------------------------------------*/
@@ -1003,5 +916,204 @@ cc2420_set_cca_threshold(int value)
   GET_LOCK();
   setreg(CC2420_RSSI, shifted);
   RELEASE_LOCK();
+}
+/*---------------------------------------------------------------------------*/
+static radio_result_t
+get_value(radio_param_t param, radio_value_t *value)
+{
+  int i, v;
+  int lock;
+  uint16_t reg;
+  uint8_t tmp[2];
+
+  if(!value) {
+    return RADIO_RESULT_INVALID_VALUE;
+  }
+  switch(param) {
+  case RADIO_PARAM_POWER_MODE:
+    *value = receive_on ? RADIO_POWER_MODE_ON : RADIO_POWER_MODE_OFF;
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_CHANNEL:
+    *value = cc2420_get_channel();
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_PAN_ID:
+    lock = lock_radio_on();
+    read_ram(tmp, CC2420RAM_PANID, 2);
+    release_radio_on(lock);
+    *value = tmp[0] | (tmp[1] << 8);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_16BIT_ADDR:
+    lock = lock_radio_on();
+    read_ram(tmp, CC2420RAM_SHORTADDR, 2);
+    release_radio_on(lock);
+    *value = tmp[0] | (tmp[1] << 8);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_RX_MODE:
+    lock = lock_radio_on();
+    reg = getreg(CC2420_MDMCTRL0);
+    release_radio_on(lock);
+
+    *value = 0;
+    if(reg & ADR_DECODE) {
+      *value |= RADIO_RX_MODE_ADDRESS_FILTER;
+    }
+    if(reg & AUTOACK) {
+      *value |= RADIO_RX_MODE_AUTOACK;
+    }
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_TX_MODE:
+    *value = send_on_cca ? RADIO_TX_MODE_SEND_ON_CCA : 0;
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_TXPOWER:
+    v = cc2420_get_txpower();
+    *value = OUTPUT_POWER_MIN;
+    /* Find the actual estimated output power in conversion table */
+    for(i = 0; i < OUTPUT_NUM; i++) {
+      if(v >= output_power[i].config) {
+        *value = output_power[i].power;
+        break;
+      }
+    }
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_CCA_THRESHOLD:
+    lock = lock_radio_on();
+    reg = getreg(CC2420_RSSI);
+    release_radio_on(lock);
+    *value = (int)((int8_t)(reg >> 8)) + RSSI_OFFSET;
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_RSSI:
+    /* Return the RSSI value in dBm */
+    *value = cc2420_rssi() + RSSI_OFFSET;
+    return RADIO_RESULT_OK;
+  case RADIO_CONST_CHANNEL_MIN:
+    *value = 11;
+    return RADIO_RESULT_OK;
+  case RADIO_CONST_CHANNEL_MAX:
+    *value = 26;
+    return RADIO_RESULT_OK;
+  case RADIO_CONST_TXPOWER_MIN:
+    *value = OUTPUT_POWER_MIN;
+    return RADIO_RESULT_OK;
+  case RADIO_CONST_TXPOWER_MAX:
+    *value = OUTPUT_POWER_MAX;
+    return RADIO_RESULT_OK;
+  default:
+    return RADIO_RESULT_NOT_SUPPORTED;
+  }
+}
+/*---------------------------------------------------------------------------*/
+static radio_result_t
+set_value(radio_param_t param, radio_value_t value)
+{
+  int lock, i;
+  uint16_t reg;
+  uint8_t tmp[2];
+
+  switch(param) {
+  case RADIO_PARAM_POWER_MODE:
+    if(value == RADIO_POWER_MODE_ON) {
+      cc2420_on();
+      return RADIO_RESULT_OK;
+    }
+    if(value == RADIO_POWER_MODE_OFF) {
+      cc2420_off();
+      return RADIO_RESULT_OK;
+    }
+    return RADIO_RESULT_INVALID_VALUE;
+  case RADIO_PARAM_CHANNEL:
+    if(value < 11 || value > 26) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+    cc2420_set_channel(value);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_PAN_ID:
+    lock = lock_radio_on();
+    tmp[0] = value & 0xff;
+    tmp[1] = (value >> 8) & 0xff;
+    write_ram(&tmp, CC2420RAM_PANID, 2);
+    release_radio_on(lock);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_16BIT_ADDR:
+    lock = lock_radio_on();
+    tmp[0] = value & 0xff;
+    tmp[1] = (value >> 8) & 0xff;
+    write_ram(tmp, CC2420RAM_SHORTADDR, 2);
+    release_radio_on(lock);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_RX_MODE:
+    lock = lock_radio_on();
+    reg = getreg(CC2420_MDMCTRL0);
+    reg &= ~(ADR_DECODE|AUTOACK);
+    if(value & RADIO_RX_MODE_ADDRESS_FILTER) {
+      reg |= ADR_DECODE;
+    }
+    if(value & RADIO_RX_MODE_AUTOACK) {
+      reg |= AUTOACK;
+    }
+    setreg(CC2420_MDMCTRL0, reg);
+    release_radio_on(lock);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_TX_MODE:
+    send_on_cca = value & RADIO_TX_MODE_SEND_ON_CCA ? 1 : 0;
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_TXPOWER:
+    if(value < OUTPUT_POWER_MIN || value > OUTPUT_POWER_MAX) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+    /* Find the closest higher PA_LEVEL for the desired output power */
+    for(i = 1; i < OUTPUT_NUM; i++) {
+      if(value > output_power[i].power) {
+        break;
+      }
+    }
+    cc2420_set_txpower(output_power[i - 1].config);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_CCA_THRESHOLD:
+    cc2420_set_cca_threshold(value - RSSI_OFFSET);
+    return RADIO_RESULT_OK;
+  default:
+    return RADIO_RESULT_NOT_SUPPORTED;
+  }
+}
+/*---------------------------------------------------------------------------*/
+static radio_result_t
+get_object(radio_param_t param, void *dest, size_t size)
+{
+  int lock;
+  uint8_t tmp[8];
+
+  switch(param) {
+  case RADIO_PARAM_64BIT_ADDR:
+    if(size < 8 || !dest) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+    lock = lock_radio_on();
+    read_ram(tmp, CC2420RAM_IEEEADDR, 8);
+    revcpy(dest, tmp, 8);
+    release_radio_on(lock);
+    return RADIO_RESULT_OK;
+  default:
+    return RADIO_RESULT_NOT_SUPPORTED;
+  }
+}
+/*---------------------------------------------------------------------------*/
+static radio_result_t
+set_object(radio_param_t param, const void *src, size_t size)
+{
+  int lock;
+  uint8_t tmp[8];
+  switch(param) {
+  case RADIO_PARAM_64BIT_ADDR:
+    if(size != 8 || !src) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+    lock = lock_radio_on();
+    revcpy(tmp, src, 8);
+    write_ram(tmp, CC2420RAM_IEEEADDR, 8);
+    release_radio_on(lock);
+    return RADIO_RESULT_OK;
+  default:
+    return RADIO_RESULT_NOT_SUPPORTED;
+  }
 }
 /*---------------------------------------------------------------------------*/
