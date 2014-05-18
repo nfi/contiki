@@ -31,14 +31,6 @@
 #define CC2430_RF_TX_POWER CC2430_RF_TX_POWER_RECOMMENDED
 #endif
 
-#ifdef CC2430_RF_CONF_CHANNEL
-#define CC2430_RF_CHANNEL CC2430_RF_CONF_CHANNEL
-#else
-#define CC2430_RF_CHANNEL 18
-#endif /* CC2430_RF_CONF_CHANNEL */
-#define CC2430_CHANNEL_MIN 11
-#define CC2430_CHANNEL_MAX 26
-
 #ifdef CC2430_RF_CONF_AUTOACK
 #define CC2430_RF_AUTOACK CC2430_RF_CONF_AUTOACK
 #else
@@ -88,6 +80,8 @@
 #define CRC_BIT_MASK 0x80
 #define LQI_BIT_MASK 0x7F
 
+#define RSSI_OFFSET  45
+
 /* 192 ms, radio off -> on interval */
 #define ONOFF_TIME                    ((RTIMER_ARCH_SECOND / 3125) + 4)
 
@@ -100,17 +94,54 @@ static const uint8_t magic[] = { 0x53, 0x6E, 0x69, 0x66 }; /* Snif */
 uint8_t rf_error = 0;
 #endif
 
+#define CC2430_RF_CHANNEL_MIN                11
+#define CC2430_RF_CHANNEL_MAX                26
+#define CC2430_RF_CHANNEL_SET_ERROR          -1
+#define CC2430_RF_CHANNEL_SPACING             5
+#define CC2430_RF_CHANNEL_RANGE_CORRECTION  357
+
+/* Frame filtering and auto ACK register bits */
+#define MDMCTRL0H_ADDR_DECODE          0x08
+#define MDMCTRL0L_AUTOACK              0x10
+#define FSCTRLH_FREQ                   0x02
 /*---------------------------------------------------------------------------*/
 #if !NETSTACK_CONF_SHORTCUTS
 PROCESS(cc2430_rf_process, "CC2430 RF driver");
 #endif
 /*---------------------------------------------------------------------------*/
 static uint8_t CC_AT_DATA rf_flags;
-static uint8_t rf_channel;
 
 static int on(void); /* prepare() needs our prototype */
 static int off(void); /* transmit() needs our prototype */
 static int channel_clear(void); /* transmit() needs our prototype */
+/*---------------------------------------------------------------------------*/
+/* TX Power dBm lookup table */
+typedef struct output_config {
+  radio_value_t power;
+  uint8_t txpower_val;
+} output_config_t;
+
+
+static const output_config_t output_power[] = {
+  {  1, 0xFF }, /*   0.6 */
+  {  0, 0x7F }, /*  -0.1 */
+  { -1, 0x3F }, /*  -0.9 */
+  { -2, 0x1F }, /*  -1.5 */
+  { -3, 0x1B }, /*  -2.7 */
+  { -4, 0x17 },
+  { -5, 0x13 }, /*  -5.7 */
+  { -8, 0x0F }, /*  -7.9 */
+  {-10, 0x0B }, /* -10.8 */
+  {-15, 0x07 }, /* -15.4 */
+  {-18, 0x06 }, /* -18.6 */
+  {-25, 0x03 }, /* -25.2 */
+};
+
+#define OUTPUT_CONFIG_COUNT (sizeof(output_power) / sizeof(output_config_t))
+
+/* Max and Min Output Power in dBm */
+#define OUTPUT_POWER_MIN    (output_power[OUTPUT_CONFIG_COUNT - 1].power)
+#define OUTPUT_POWER_MAX    (output_power[0].power)
 /*---------------------------------------------------------------------------*/
 /**
  * Execute a single CSP command.
@@ -165,63 +196,178 @@ flush_rx()
   RFIF &= ~IRQ_FIFOP;
 }
 /*---------------------------------------------------------------------------*/
+/* FSCTRLH.FREQ:FSCTRLL.FREQ = 357 + 5 (k-11) */
+static uint8_t
+get_channel()
+{
+  uint16_t freq = ((FSCTRLH & FSCTRLH_FREQ) << 8) | FSCTRLL;
+
+  return (uint8_t)(((freq - CC2430_RF_CHANNEL_RANGE_CORRECTION)
+                   / CC2430_RF_CHANNEL_SPACING) + CC2430_RF_CHANNEL_MIN);
+}
+/*---------------------------------------------------------------------------*/
 /**
- * Select RF channel.
- *
- * \param channel channel number to select
- *
- * \return channel value or negative (invalid channel number)
+ * \brief Set the current operating channel
+ * \param channel The desired channel as a value in [11,26]
+ * \return Returns a value in [11,26] representing the current channel
+ *         or a negative value if \e channel was out of bounds
  */
-
- /* channel freqdiv = (2048 + FSCTRL(9:0)) / 4
-            freq = (2048 + FSCTRL(9:0)) MHz */
-
-int8_t
-cc2430_rf_channel_set(uint8_t channel)
+static int8_t
+set_channel(uint8_t channel)
 {
   uint16_t freq;
 
-  if((channel < 11) || (channel > 26)) {
-    return -1;
+  if((channel < CC2430_RF_CHANNEL_MIN) || (channel > CC2430_RF_CHANNEL_MAX)) {
+    return CC2430_RF_CHANNEL_SET_ERROR;
   }
 
+  /* RF must be off for channel changes */
   cc2430_rf_command(ISSTOP);  /*make sure CSP is not running*/
   cc2430_rf_command(ISRFOFF);
+
   /* Channel values: 11-26 */
-  freq = (uint16_t) channel - 11;
-  freq *= 5;  /*channel spacing*/
-  freq += 357; /*correct channel range*/
-  freq |= 0x4000; /*LOCK_THR = 1*/
-  FSCTRLH = (freq >> 8);
+  freq = (uint16_t)channel - CC2430_RF_CHANNEL_MIN;
+  freq *= CC2430_RF_CHANNEL_SPACING;
+
+  /* Adjust channel range */
+  freq += CC2430_RF_CHANNEL_RANGE_CORRECTION;
+
+  FSCTRLH |= (freq >> 8);
   FSCTRLL = (uint8_t)freq;
 
   cc2430_rf_command(ISRXON);
 
-  rf_channel = channel;
-
-  return (int8_t) channel;
+  return (int8_t)channel;
 }
 /*---------------------------------------------------------------------------*/
-uint8_t
-cc2430_rf_channel_get()
+static radio_value_t
+get_pan_id(void)
 {
-  return rf_channel;
+  return (radio_value_t)(PANIDH << 8 | PANIDL);
+}
+/*---------------------------------------------------------------------------*/
+static void
+set_pan_id(uint16_t pan)
+{
+  PANIDL = pan & 0xFF;
+  PANIDH = pan >> 8;
+}
+/*---------------------------------------------------------------------------*/
+static radio_value_t
+get_short_addr(void)
+{
+  return (radio_value_t)(SHORTADDRH << 8 | SHORTADDRL);
+}
+/*---------------------------------------------------------------------------*/
+static void
+set_short_addr(uint16_t addr)
+{
+  SHORTADDRL = addr & 0xFF;
+  SHORTADDRH = addr >> 8;
 }
 /*---------------------------------------------------------------------------*/
 /**
- * Select RF transmit power.
+ * \brief Reads the current signal strength (RSSI)
+ * \return The current RSSI in dBm
  *
- * \param new_power new power level
- *
- * \return new level
+ * This function reads the current RSSI on the currently configured
+ * channel.
  */
-uint8_t
-cc2430_rf_power_set(uint8_t new_power)
+static radio_value_t
+get_rssi(void)
 {
-  /* Set transmitter power */
-  TXCTRLL = new_power;
+  int8_t rssi;
 
-  return TXCTRLL;
+  /* If we are off, turn on first */
+  if((rf_flags & RX_ACTIVE) == 0) {
+    rf_flags |= WAS_OFF;
+    on();
+  }
+
+  rssi = (radio_value_t)RSSIL - RSSI_OFFSET;
+
+  /* If we were off, turn back off */
+  if((rf_flags & WAS_OFF) == WAS_OFF) {
+    rf_flags &= ~WAS_OFF;
+    off();
+  }
+
+  return rssi;
+}
+/*---------------------------------------------------------------------------*/
+/* Returns the current CCA threshold in dBm */
+static radio_value_t
+get_cca_threshold(void)
+{
+  return (int8_t)RSSIH - RSSI_OFFSET;
+}
+/*---------------------------------------------------------------------------*/
+/* Sets the CCA threshold in dBm */
+static void
+set_cca_threshold(radio_value_t value)
+{
+  RSSIH = (value + RSSI_OFFSET) & 0xFF;
+}
+/*---------------------------------------------------------------------------*/
+/* Returns the current TX power in dBm */
+static radio_value_t
+get_tx_power(void)
+{
+  int i;
+  uint8_t reg_val = TXCTRLL;
+
+  /*
+   * Find the TXPOWER value in the lookup table
+   * If the value has been written with set_tx_power, we should be able to
+   * find the exact value. However, in case the register has been written in
+   * a different fashion, we return the immediately lower value of the lookup
+   */
+  for(i = 0; i < OUTPUT_CONFIG_COUNT; i++) {
+    if(reg_val >= output_power[i].txpower_val) {
+      return output_power[i].power;
+    }
+  }
+  return OUTPUT_POWER_MIN;
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Set TX power to 'at least' power dBm
+ * This works with a lookup table. If the value of 'power' does not exist in
+ * the lookup table, TXPOWER will be set to the immediately higher available
+ * value
+ */
+static void
+set_tx_power(radio_value_t power)
+{
+  int i;
+
+  for(i = OUTPUT_CONFIG_COUNT - 1; i >= 0; --i) {
+    if(power <= output_power[i].power) {
+      /* Perhaps an earlier call set TXCTRL to 0x09. Restore */
+      TXCTRLL = output_power[i].txpower_val;
+      return;
+    }
+  }
+}
+/*---------------------------------------------------------------------------*/
+static void
+set_frame_filtering(uint8_t enable)
+{
+  if(enable) {
+    MDMCTRL0H |= MDMCTRL0H_ADDR_DECODE;
+  } else {
+    MDMCTRL0H &= ~MDMCTRL0H_ADDR_DECODE;
+  }
+}
+/*---------------------------------------------------------------------------*/
+static void
+set_auto_ack(uint8_t enable)
+{
+  if(enable) {
+    MDMCTRL0L |= MDMCTRL0L_AUTOACK;
+  } else {
+    MDMCTRL0L &= ~MDMCTRL0L_AUTOACK;
+  }
 }
 /*---------------------------------------------------------------------------*/
 #if 0 /* unused */
@@ -239,36 +385,6 @@ cc2430_rf_tx_enable(void)
 
   return 1;
 }
-#endif
-/*---------------------------------------------------------------------------*/
-/**
-  * Set MAC addresses
-  *
-  * \param pan The PAN address to set
-  * \param addr The short address to set
-  * \param ieee_addr The 64-bit IEEE address to set
-  */
-void
-cc2430_rf_set_addr(unsigned pan, unsigned addr, const uint8_t *ieee_addr)
-{
-  uint8_t f;
-  __xdata unsigned char *ptr;
-
-  PANIDH = pan >> 8;
-  PANIDL = pan & 0xff;
-
-  SHORTADDRH = addr >> 8;
-  SHORTADDRL = addr & 0xff;
-
-  if(ieee_addr != NULL) {
-    ptr = &IEEE_ADDR7;
-      /* LSB first, MSB last for 802.15.4 addresses in CC2420 */
-    for(f = 0; f < 8; f++) {
-      *ptr-- = ieee_addr[f];
-    }
-  }
-}
-#if 0 /* currently unused */
 /*---------------------------------------------------------------------------*/
 /**
  * Channel energy detect.
@@ -288,7 +404,6 @@ cc2430_rf_analyze_rssi(void)
   retval -= 45;
   return retval;
 }
-#endif /* currently unused */
 /*---------------------------------------------------------------------------*/
 /**
  * Send ACK.
@@ -304,6 +419,7 @@ cc2430_rf_send_ack(uint8_t pending)
     cc2430_rf_command(ISACK);
   }
 }
+#endif /* currently unused */
 /*---------------------------------------------------------------------------*/
 /* Netstack API radio driver functions */
 /*---------------------------------------------------------------------------*/
@@ -329,7 +445,7 @@ init(void)
   MDMCTRL0H = 0x0A;  /* Generic client, standard hysteresis, decoder on 0x0a */
   MDMCTRL0L = 0xE2;  /* automatic CRC, standard CCA and preamble 0xE2 */
 #if CC2430_RF_AUTOACK
-  MDMCTRL0L |= 0x10;
+  MDMCTRL0L |= MDMCTRL0L_AUTOACK;
 #endif
 
   MDMCTRL1H = 0x30;     /* Defaults */
@@ -338,12 +454,8 @@ init(void)
   RXCTRL0H = 0x32;      /* RX tuning optimized */
   RXCTRL0L = 0xf5;
 
-  cc2430_rf_channel_set(CC2430_RF_CHANNEL);
   cc2430_rf_command(ISFLUSHTX);
   cc2430_rf_command(ISFLUSHRX);
-
-  /* Temporary values, main() will sort this out later on */
-  cc2430_rf_set_addr(0xffff, 0x0000, NULL);
 
   RFIM = IRQ_FIFOP;
   RFIF &= ~(IRQ_FIFOP);
@@ -367,7 +479,8 @@ init(void)
   process_start(&cc2430_rf_process, NULL);
 #endif
 
-  cc2430_rf_power_set(CC2430_RF_TX_POWER);
+  /* Set Default TX Power */
+  TXCTRLL = CC2430_RF_TX_POWER;
 
   return 1;
 }
@@ -689,24 +802,148 @@ off(void)
 static radio_result_t
 get_value(radio_param_t param, radio_value_t *value)
 {
-  return RADIO_RESULT_NOT_SUPPORTED;
+  if(!value) {
+    return RADIO_RESULT_INVALID_VALUE;
+  }
+
+  switch(param) {
+  case RADIO_PARAM_POWER_MODE:
+    *value = (rf_flags & RX_ACTIVE) == 0 ? RADIO_POWER_MODE_OFF : RADIO_POWER_MODE_ON;
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_CHANNEL:
+    *value = (radio_value_t)get_channel();
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_PAN_ID:
+    *value = get_pan_id();
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_16BIT_ADDR:
+    *value = get_short_addr();
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_RX_MODE:
+    *value = 0;
+    if(MDMCTRL0H & MDMCTRL0H_ADDR_DECODE) {
+      *value |= RADIO_RX_MODE_ADDRESS_FILTER;
+    }
+    if(MDMCTRL0L & MDMCTRL0L_AUTOACK) {
+      *value |= RADIO_RX_MODE_AUTOACK;
+    }
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_TXPOWER:
+    *value = get_tx_power();
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_CCA_THRESHOLD:
+    *value = get_cca_threshold();
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_RSSI:
+    *value = get_rssi();
+    return RADIO_RESULT_OK;
+  case RADIO_CONST_CHANNEL_MIN:
+    *value = CC2430_RF_CHANNEL_MIN;
+    return RADIO_RESULT_OK;
+  case RADIO_CONST_CHANNEL_MAX:
+    *value = CC2430_RF_CHANNEL_MAX;
+    return RADIO_RESULT_OK;
+  case RADIO_CONST_TXPOWER_MIN:
+    *value = OUTPUT_POWER_MIN;
+    return RADIO_RESULT_OK;
+  case RADIO_CONST_TXPOWER_MAX:
+    *value = OUTPUT_POWER_MAX;
+    return RADIO_RESULT_OK;
+  default:
+    return RADIO_RESULT_NOT_SUPPORTED;
+  }
 }
 /*---------------------------------------------------------------------------*/
 static radio_result_t
 set_value(radio_param_t param, radio_value_t value)
 {
-  return RADIO_RESULT_NOT_SUPPORTED;
+  switch(param) {
+  case RADIO_PARAM_POWER_MODE:
+    if(value == RADIO_POWER_MODE_ON) {
+      on();
+      return RADIO_RESULT_OK;
+    }
+    if(value == RADIO_POWER_MODE_OFF) {
+      off();
+      return RADIO_RESULT_OK;
+    }
+    return RADIO_RESULT_INVALID_VALUE;
+  case RADIO_PARAM_CHANNEL:
+    if(value < CC2430_RF_CHANNEL_MIN || value > CC2430_RF_CHANNEL_MAX) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+    if(set_channel(value) == CC2430_RF_CHANNEL_SET_ERROR) {
+      return RADIO_RESULT_ERROR;
+    }
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_PAN_ID:
+    set_pan_id(value & 0xffff);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_16BIT_ADDR:
+    set_short_addr(value & 0xffff);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_RX_MODE:
+    if(value & ~(RADIO_RX_MODE_ADDRESS_FILTER |
+                 RADIO_RX_MODE_AUTOACK)) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+
+    set_frame_filtering((value & RADIO_RX_MODE_ADDRESS_FILTER) != 0);
+    set_auto_ack((value & RADIO_RX_MODE_AUTOACK) != 0);
+
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_TXPOWER:
+    if(value < OUTPUT_POWER_MIN || value > OUTPUT_POWER_MAX) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+
+    set_tx_power(value);
+    return RADIO_RESULT_OK;
+  case RADIO_PARAM_CCA_THRESHOLD:
+    set_cca_threshold(value);
+    return RADIO_RESULT_OK;
+  default:
+    return RADIO_RESULT_NOT_SUPPORTED;
+  }
 }
 /*---------------------------------------------------------------------------*/
 static radio_result_t
 get_object(radio_param_t param, void *dest, size_t size)
 {
+  uint8_t *target;
+  int i;
+
+  if(param == RADIO_PARAM_64BIT_ADDR) {
+    if(size != 8 || !dest) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+
+    target = dest;
+    for(i = 0; i < 8; i++) {
+      target[i] = ((uint8_t *)&IEEE_ADDR0)[7 - i] & 0xFF;
+    }
+
+    return RADIO_RESULT_OK;
+  }
   return RADIO_RESULT_NOT_SUPPORTED;
 }
 /*---------------------------------------------------------------------------*/
 static radio_result_t
 set_object(radio_param_t param, const void *src, size_t size)
 {
+  int i;
+
+  if(param == RADIO_PARAM_64BIT_ADDR) {
+    if(size != 8 || !src) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+
+    for(i = 0; i < 8; i++) {
+      ((uint8_t *)&IEEE_ADDR0)[i] = ((uint8_t *)src)[7 - i];
+    }
+
+    return RADIO_RESULT_OK;
+  }
   return RADIO_RESULT_NOT_SUPPORTED;
 }
 /*---------------------------------------------------------------------------*/

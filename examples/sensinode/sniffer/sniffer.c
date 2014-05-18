@@ -28,7 +28,8 @@
  */
 
 #include "contiki.h"
-#include "cc2430_sfr.h"
+#include "contiki-net.h"
+#include "dev/radio.h"
 
 #define DEBUG DEBUG_NONE
 #include "net/ip/uip-debug.h"
@@ -44,8 +45,8 @@ PROCESS_THREAD(sniffer_process, ev, data)
 
   PRINTF("Sniffer started\n");
 
-  /* Turn off cc2430 Address Recognition - We need to accept all frames */
-  MDMCTRL0H &= ~0x08;
+  /* Disable address recognition and auto-ACKs */
+  NETSTACK_RADIO.set_value(RADIO_PARAM_RX_MODE, 0);
 
   PROCESS_EXIT();
 

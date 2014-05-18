@@ -91,10 +91,10 @@ fade(int l) CC_NON_BANKED
 }
 /*---------------------------------------------------------------------------*/
 static void
-set_rime_addr(void) CC_NON_BANKED
+set_rf_params(void) CC_NON_BANKED
 {
-  uint8_t *addr_long = NULL;
-  uint16_t addr_short = 0;
+  uint8_t ext_addr[8];
+  uint16_t short_addr;
   char i;
   __code unsigned char *macp;
 
@@ -118,11 +118,15 @@ set_rime_addr(void) CC_NON_BANKED
     /* Switch to BANK3, map CODE: 0x8000 - 0xFFFF to FLASH: 0x18000 - 0x1FFFF */
     FMAP = 3;
 
-    /* Set our pointer to the correct address and fetch 8 bytes of MAC */
+    /* Set our pointer to the correct address */
     macp = (__code unsigned char *)0xFFF8;
 
-    for(i = (LINKADDR_SIZE - 1); i >= 0; --i) {
-      linkaddr_node_addr.u8[i] = *macp;
+    /*
+     * Read IEEE address from flash, store in ext_addr.
+     * Invert endianness (from little to big endian)
+     */
+    for(i = 7; i >= 0; --i) {
+      ext_addr[i] = *macp;
       macp++;
     }
 
@@ -132,9 +136,15 @@ set_rime_addr(void) CC_NON_BANKED
 
   } else {
     PUTSTRING("Setting manual address from node_id\n");
-    linkaddr_node_addr.u8[LINKADDR_SIZE - 1] = node_id >> 8;
-    linkaddr_node_addr.u8[LINKADDR_SIZE - 2] = node_id & 0xff;
+    ext_addr[7] = node_id & 0xff;
+    ext_addr[6] = node_id >> 8;
   }
+
+  short_addr = ext_addr[7];
+  short_addr |= ext_addr[6] << 8;
+
+  /* Populate linkaddr_node_addr. Maintain endianness */
+  memcpy(&linkaddr_node_addr, &ext_addr[8 - LINKADDR_SIZE], LINKADDR_SIZE);
 
   /* Now the address is stored MSB first */
 #if STARTUP_VERBOSE
@@ -147,14 +157,11 @@ set_rime_addr(void) CC_NON_BANKED
   PUTCHAR('\n');
 #endif
 
-  /* Set the cc2430 RF addresses */
-#if (LINKADDR_SIZE==8)
-  addr_short = (linkaddr_node_addr.u8[6] * 256) + linkaddr_node_addr.u8[7];
-  addr_long = (uint8_t *) &linkaddr_node_addr;
-#else
-  addr_short = (linkaddr_node_addr.u8[0] * 256) + linkaddr_node_addr.u8[1];
-#endif
-  cc2430_rf_set_addr(IEEE802154_PANID, addr_short, addr_long);
+  /* Write params to RF registers */
+  NETSTACK_RADIO.set_value(RADIO_PARAM_PAN_ID, IEEE802154_PANID);
+  NETSTACK_RADIO.set_value(RADIO_PARAM_16BIT_ADDR, short_addr);
+  NETSTACK_RADIO.set_value(RADIO_PARAM_CHANNEL, CC2430_RF_CHANNEL);
+  NETSTACK_RADIO.set_object(RADIO_PARAM_64BIT_ADDR, ext_addr, 8);
 }
 /*---------------------------------------------------------------------------*/
 int
@@ -238,7 +245,7 @@ main(void)
 
   /* initialize the netstack */
   netstack_init();
-  set_rime_addr();
+  set_rf_params();
 
 #if BUTTON_SENSOR_ON || ADC_SENSOR_ON
   process_start(&sensors_process, NULL);

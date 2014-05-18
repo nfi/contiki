@@ -69,13 +69,15 @@ typedef enum rf_address_mode_t {
 #define CC2430_RFERR_INTERRUPT 0
 #endif
 
+#ifdef CC2430_RF_CONF_CHANNEL
+#define CC2430_RF_CHANNEL CC2430_RF_CONF_CHANNEL
+#else
+#define CC2430_RF_CHANNEL 18
+#endif /* CC2430_RF_CONF_CHANNEL */
+
 extern const struct radio_driver cc2430_rf_driver;
 
 void cc2430_rf_command(uint8_t command);
-int8_t cc2430_rf_channel_set(uint8_t channel);
-uint8_t cc2430_rf_channel_get();
-uint8_t cc2430_rf_power_set(uint8_t new_power);
-void cc2430_rf_set_addr(unsigned pan, unsigned addr, const uint8_t *ieee_addr);
 
 #if !NETSTACK_CONF_SHORTCUTS
 extern void cc2430_rf_ISR(void) __interrupt(RF_VECTOR);
